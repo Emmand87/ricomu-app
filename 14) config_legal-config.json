@@ -1,0 +1,6 @@
+{
+  "vademecum": {
+    "prefetto": { "attesa_giorni": 120, "nota": "Parametro configurabile: verifica normativa aggiornata." },
+    "gdp": { "attesa_giorni": 90, "nota": "Parametro configurabile: verifica normativa aggiornata." }
+  }
+}
