@@ -2,7 +2,7 @@
 import 'dotenv/config';
 import express from 'express';
 import multer from 'multer';
-import pdfkit from 'pdfkit';
+import PDFDocument from 'pdfkit';
 import cors from 'cors';
 import tesseract from 'tesseract.js';
 import fs from 'fs';
@@ -19,24 +19,46 @@ const __dirname = dirname(__filename);
 
 const app = express();
 const upload = multer({ storage: multer.memoryStorage() });
+
 app.use(cors());
-app.use(express.json());
+app.use(express.json({ limit: '8mb' }));
 
-const stripe = new Stripe(process.env.STRIPE_SECRET_KEY);
-const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
+// ➜ SERVE la UI (index.html, app.js, ecc.)
+app.use(express.static(path.join(__dirname, 'public')));
 
-// === STEP 1: Upload multa ===
+// cartella per file generati (PDF finale/bozza)
+const OUTPUT_DIR = path.join(__dirname, 'public');
+app.use('/output', express.static(OUTPUT_DIR));
+
+// rotta salute per debug rapido
+app.get('/health', (_req, res) => res.json({ ok: true }));
+
+// fallback esplicito alla home (utile su alcuni hosting)
+app.get('/', (_req, res) => {
+  res.sendFile(path.join(__dirname, 'public', 'index.html'));
+});
+
+// Stripe e OpenAI (con controlli chiave)
+const stripeKey = process.env.STRIPE_SECRET_KEY || '';
+const stripe = stripeKey ? new Stripe(stripeKey) : null;
+const openaiKey = process.env.OPENAI_API_KEY || '';
+const openai = openaiKey ? new OpenAI({ apiKey: openaiKey }) : null;
+
+// === STEP 1: Upload multa (PDF o immagine) ===
 app.post('/api/upload', upload.single('file'), async (req, res) => {
   try {
-    let text = "";
+    if (!req.file) return res.status(400).json({ error: 'File mancante' });
 
-    if ((req.file.mimetype || '').includes('pdf')) {
+    let text = '';
+    const mime = req.file.mimetype || '';
+
+    if (mime.includes('pdf')) {
       // Estrazione testo da PDF con pdfjs-dist
       text = await extractPdfText(req.file.buffer);
     } else {
-      // OCR per immagini
+      // OCR per immagini (italiano)
       const { data } = await tesseract.recognize(req.file.buffer, 'ita');
-      text = data.text;
+      text = data.text || '';
     }
 
     res.json({ extracted: text });
@@ -46,48 +68,68 @@ app.post('/api/upload', upload.single('file'), async (req, res) => {
   }
 });
 
-// === STEP 2: Genera ricorso ===
+// === STEP 2: Genera ricorso con AI + knowledge-service ===
 app.post('/api/generate', async (req, res) => {
   try {
-    const { extracted } = req.body;
+    const { extracted } = req.body || {};
     if (!extracted) return res.status(400).json({ error: 'Nessun testo' });
+    if (!openai) return res.status(500).json({ error: 'OPENAI_API_KEY mancante' });
+    if (!process.env.KNOWLEDGE_URL) return res.status(500).json({ error: 'KNOWLEDGE_URL mancante' });
 
-    // Chiede motivazioni legali al knowledge service
-    const kresp = await axios.post(process.env.KNOWLEDGE_URL + "/search", {
-      queries: [extracted]
+    // recupera contesto legale dal knowledge service
+    const kresp = await axios.post(`${process.env.KNOWLEDGE_URL}/search`, {
+      queries: [extracted],
+      k: 12
     });
+    const knowledge = (kresp.data || []).map(r => r.content).join('\n---\n');
 
-    const knowledge = (kresp.data || []).map(r => r.content).join("\n---\n");
-
-    // Prompt per generare ricorso completo
     const prompt = `
 Sei un avvocato esperto in ricorsi per multe italiane.
-Testo verbale: ${extracted}
-Motivazioni legali trovate: ${knowledge}
+Testo del verbale (OCR/parsing):
+${extracted}
 
-Scrivi un ricorso di almeno 2000 parole, con riferimenti normativi, giurisprudenza,
-e motivazioni principali + motivazioni aggiuntive.
-`;
+Fonti/contesto:
+${knowledge}
 
-    const resp = await openai.chat.completions.create({
-      model: "gpt-4o-mini",
-      messages: [{ role: "user", content: prompt }]
+Scrivi un ricorso completo (>=2000 parole), con:
+- motivi principali (incluso il motivo centrale)
+- motivi aggiuntivi/pretestuosi
+- riferimenti normativi (CdS, L. 241/1990, ecc.) e giurisprudenza
+- conclusioni e richieste
+Stile formale/burocratico.`;
+
+    const ai = await openai.chat.completions.create({
+      model: 'gpt-4o-mini',
+      temperature: 0.2,
+      messages: [{ role: 'user', content: prompt }]
     });
 
-    const ricorso = resp.choices[0].message.content;
+    const ricorso = ai.choices?.[0]?.message?.content || 'Testo non disponibile';
 
-    // Genera PDF bozza (con watermark e non scaricabile definitivo)
-    const filename = path.join(__dirname, 'ricorso-bozza.pdf');
-    const doc = new pdfkit();
-    doc.fontSize(14).text("=== BOZZA NON UTILIZZABILE ===", { align: "center" });
-    doc.moveDown();
-    doc.fontSize(12).text(ricorso);
+    // Genera BOZZA con watermark dentro /public per essere servita via HTTP
+    const filename = path.join(OUTPUT_DIR, 'ricorso-bozza.pdf');
+    const doc = new PDFDocument({ size: 'A4', margins: { top: 56, left: 56, right: 56, bottom: 56 } });
+    const stream = fs.createWriteStream(filename);
+    doc.pipe(stream);
+
+    // watermark “BOZZA NON UTILIZZABILE”
+    doc.save();
+    doc.fillColor('gray');
+    doc.rotate(-30, { origin: [300, 400] });
+    doc.fontSize(40).opacity(0.15).text('BOZZA NON UTILIZZABILE', 80, 200);
+    doc.opacity(1).restore();
+
+    doc.fontSize(14).fillColor('black').text('Ricorso (bozza anteprima)', { align: 'center', underline: true }).moveDown();
+    doc.fontSize(11).text(ricorso, { align: 'justify' });
     doc.end();
 
-    const writeStream = fs.createWriteStream(filename);
-    doc.pipe(writeStream);
-    writeStream.on("finish", () => {
-      res.json({ preview: "/ricorso-bozza.pdf" });
+    stream.on('finish', () => {
+      // restituisco il path relativo (sarà visibile come /ricorso-bozza.pdf)
+      res.json({ preview: '/ricorso-bozza.pdf' });
+    });
+    stream.on('error', (e) => {
+      console.error(e);
+      res.status(500).json({ error: 'Errore creazione PDF bozza' });
     });
   } catch (e) {
     console.error(e);
@@ -95,27 +137,27 @@ e motivazioni principali + motivazioni aggiuntive.
   }
 });
 
-// === STEP 3: Pagamento ===
+// === STEP 3: Pagamento Stripe ===
 app.post('/api/pay', async (req, res) => {
   try {
-    const { amount } = req.body;
-    if (!amount) return res.status(400).json({ error: "Nessun importo" });
+    if (!stripe) return res.status(500).json({ error: 'STRIPE_SECRET_KEY mancante' });
+
+    const { amount } = req.body || {};
+    if (!amount) return res.status(400).json({ error: 'Nessun importo' });
 
     const session = await stripe.checkout.sessions.create({
       payment_method_types: ['card'],
       mode: 'payment',
-      line_items: [
-        {
-          price_data: {
-            currency: 'eur',
-            product_data: { name: 'Ricorso Multe' },
-            unit_amount: amount * 100
-          },
-          quantity: 1
-        }
-      ],
-      success_url: process.env.PUBLIC_BASE_URL + '/success',
-      cancel_url: process.env.PUBLIC_BASE_URL + '/cancel'
+      line_items: [{
+        price_data: {
+          currency: 'eur',
+          product_data: { name: 'Ricorso Multe - PDF finale' },
+          unit_amount: Math.round(Number(amount) * 100)
+        },
+        quantity: 1
+      }],
+      success_url: `${process.env.PUBLIC_BASE_URL}/success.html`,
+      cancel_url: `${process.env.PUBLIC_BASE_URL}/`
     });
 
     res.json({ url: session.url });
@@ -125,10 +167,8 @@ app.post('/api/pay', async (req, res) => {
   }
 });
 
-app.get('/ricorso-bozza.pdf', (req, res) => {
-  const filename = path.join(__dirname, 'ricorso-bozza.pdf');
-  res.sendFile(filename);
+const PORT = process.env.PORT || 3000;
+app.listen(PORT, () => {
+  console.log('RICOMU app live on http://localhost:' + PORT);
 });
 
-const PORT = process.env.PORT || 3000;
-app.listen(PORT, () => console.log("App RICOMU attiva su porta " + PORT));
