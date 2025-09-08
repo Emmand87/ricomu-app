@@ -1,155 +1,134 @@
+// server.js
 import 'dotenv/config';
 import express from 'express';
-import cors from 'cors';
 import multer from 'multer';
+import pdfkit from 'pdfkit';
+import cors from 'cors';
+import tesseract from 'tesseract.js';
 import fs from 'fs';
 import path from 'path';
-import { createWorker } from 'tesseract.js';
-import pdfParse from 'pdf-parse';
+import axios from 'axios';
+import OpenAI from 'openai';
 import Stripe from 'stripe';
+import { fileURLToPath } from 'url';
+import { dirname } from 'path';
+import { extractPdfText } from './utils/pdfText.js';
 
-import { parseOCRText } from './utils/extract.js';
-import { detectMotivations } from './utils/motivations.js';
-import { buildText } from './utils/generator.js';
-import { createPdfFromText } from './utils/pdf.js';
-import { registerAIRoutes } from './ai_routes.js';
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = dirname(__filename);
 
 const app = express();
 const upload = multer({ storage: multer.memoryStorage() });
-
 app.use(cors());
-app.use(express.json({ limit: '8mb' }));
-app.use(express.static('public'));
-app.use('/output', express.static('output'));
-registerAIRoutes(app);
+app.use(express.json());
 
-// OCR worker (italiano)
-const workerPromise = (async () => {
-  const worker = await createWorker('ita');
-  return worker;
-})();
+const stripe = new Stripe(process.env.STRIPE_SECRET_KEY);
+const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
 
-// Stripe
-const stripeSecret = process.env.STRIPE_SECRET_KEY;
-const stripe = stripeSecret ? new Stripe(stripeSecret, { apiVersion: '2024-06-20' }) : null;
-const BASE_URL = process.env.PUBLIC_BASE_URL || 'http://localhost:3000';
-
-// Store in memoria (in produzione: DB)
-const store = new Map();
-
-function priceForAmount(amount) {
-  if (amount <= 50) return 15;
-  if (amount <= 100) return 19;
-  if (amount <= 200) return 29;
-  return 39;
-}
-
+// === STEP 1: Upload multa ===
 app.post('/api/upload', upload.single('file'), async (req, res) => {
   try {
-    if (!req.file) return res.status(400).json({ error: 'File mancante' });
-    let text = '';
-    if ((req.file.mimetype || '').includes('pdf')) {
-      const data = await pdfParse(req.file.buffer);
-      text = data.text || '';
-    } else {
-      const worker = await workerPromise;
-      const { data } = await worker.recognize(req.file.buffer, { lang: 'ita' });
-      text = data.text || '';
-    }
-    const parsed = parseOCRText(text);
-    parsed.targa = parsed.targa || '';
-    parsed.owner = { name: '', comune: '', dataNascita: '', indirizzo: '', cf: '' };
+    let text = "";
 
-    // euristica locale (fallback)
-    const motivations = detectMotivations(parsed);
-    res.json({ verbale: parsed, motivations });
-  } catch (e) {
-    console.error(e);
-    res.status(500).json({ error: 'Parsing fallito' });
+    if ((req.file.mimetype || '').includes('pdf')) {
+      // Estrazione testo da PDF con pdfjs-dist
+      text = await extractPdfText(req.file.buffer);
+    } else {
+      // OCR per immagini
+      const { data } = await tesseract.recognize(req.file.buffer, 'ita');
+      text = data.text;
+    }
+
+    res.json({ extracted: text });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: 'Errore durante l’estrazione del testo' });
   }
 });
 
-app.post('/api/motivazioni/auto', (req, res) => {
-  const v = req.body?.verbale || {};
-  const motivations = detectMotivations(v);
-  res.json({ motivations });
-});
-
-app.post('/api/generate/preview', (req, res) => {
-  const template = JSON.parse(fs.readFileSync('./templates/template.json', 'utf-8'));
-  const citations = JSON.parse(fs.readFileSync('./templates/citations.json', 'utf-8'));
-  const { verbale, motivi } = req.body || {};
-  const text = buildText(template, verbale || {}, motivi || {}, citations, template.target_total_words || 2000);
-  res.json({ text });
-});
-
-app.post('/api/checkout/price', (req, res) => {
-  const amount = parseFloat((req.body?.amount ?? 0));
-  const price = priceForAmount(amount);
-  res.json({ price, priceFormatted: `€ ${price.toFixed(2)}` });
-});
-
-app.post('/api/store/payload', (req, res) => {
-  const token = Math.random().toString(36).slice(2) + Date.now().toString(36);
-  store.set(token, { payload: req.body, createdAt: Date.now() });
-  res.json({ token });
-});
-
-app.post('/api/checkout/create-session', async (req, res) => {
+// === STEP 2: Genera ricorso ===
+app.post('/api/generate', async (req, res) => {
   try {
-    if (!stripe) return res.status(500).json({ error: 'Stripe non configurato' });
-    const amount = parseFloat((req.body?.amount ?? 0));
-    const token = req.body?.token;
-    if (!token || !store.has(token)) return res.status(400).json({ error: 'Token non valido' });
-    const price = priceForAmount(amount);
-    const session = await stripe.checkout.sessions.create({
-      mode: 'payment',
-      client_reference_id: token,
-      line_items: [{
-        price_data: { currency: 'eur', product_data: { name: 'RICOMU – PDF finale ricorso' }, unit_amount: Math.round(price * 100) },
-        quantity: 1
-      }],
-      success_url: `${BASE_URL}/success.html?token=${encodeURIComponent(token)}`,
-      cancel_url: `${BASE_URL}`
+    const { extracted } = req.body;
+    if (!extracted) return res.status(400).json({ error: 'Nessun testo' });
+
+    // Chiede motivazioni legali al knowledge service
+    const kresp = await axios.post(process.env.KNOWLEDGE_URL + "/search", {
+      queries: [extracted]
     });
+
+    const knowledge = (kresp.data || []).map(r => r.content).join("\n---\n");
+
+    // Prompt per generare ricorso completo
+    const prompt = `
+Sei un avvocato esperto in ricorsi per multe italiane.
+Testo verbale: ${extracted}
+Motivazioni legali trovate: ${knowledge}
+
+Scrivi un ricorso di almeno 2000 parole, con riferimenti normativi, giurisprudenza,
+e motivazioni principali + motivazioni aggiuntive.
+`;
+
+    const resp = await openai.chat.completions.create({
+      model: "gpt-4o-mini",
+      messages: [{ role: "user", content: prompt }]
+    });
+
+    const ricorso = resp.choices[0].message.content;
+
+    // Genera PDF bozza (con watermark e non scaricabile definitivo)
+    const filename = path.join(__dirname, 'ricorso-bozza.pdf');
+    const doc = new pdfkit();
+    doc.fontSize(14).text("=== BOZZA NON UTILIZZABILE ===", { align: "center" });
+    doc.moveDown();
+    doc.fontSize(12).text(ricorso);
+    doc.end();
+
+    const writeStream = fs.createWriteStream(filename);
+    doc.pipe(writeStream);
+    writeStream.on("finish", () => {
+      res.json({ preview: "/ricorso-bozza.pdf" });
+    });
+  } catch (e) {
+    console.error(e);
+    res.status(500).json({ error: 'Errore generazione ricorso' });
+  }
+});
+
+// === STEP 3: Pagamento ===
+app.post('/api/pay', async (req, res) => {
+  try {
+    const { amount } = req.body;
+    if (!amount) return res.status(400).json({ error: "Nessun importo" });
+
+    const session = await stripe.checkout.sessions.create({
+      payment_method_types: ['card'],
+      mode: 'payment',
+      line_items: [
+        {
+          price_data: {
+            currency: 'eur',
+            product_data: { name: 'Ricorso Multe' },
+            unit_amount: amount * 100
+          },
+          quantity: 1
+        }
+      ],
+      success_url: process.env.PUBLIC_BASE_URL + '/success',
+      cancel_url: process.env.PUBLIC_BASE_URL + '/cancel'
+    });
+
     res.json({ url: session.url });
   } catch (e) {
     console.error(e);
-    res.status(500).json({ error: 'Errore Stripe' });
+    res.status(500).json({ error: 'Errore creazione pagamento' });
   }
 });
 
-app.get('/api/checkout/verify', async (req, res) => {
-  try {
-    if (!stripe) return res.status(500).json({ error: 'Stripe non configurato' });
-    const token = (req.query.token || '').toString();
-    if (!token || !store.has(token)) return res.status(400).json({ error: 'Token non valido' });
-    const sessions = await stripe.checkout.sessions.list({ limit: 50 });
-    const match = sessions.data.find(s => s.client_reference_id === token && s.payment_status === 'paid');
-    if (!match) return res.status(402).json({ error: 'Pagamento non risultante' });
-
-    const template = JSON.parse(fs.readFileSync('./templates/template.json', 'utf-8'));
-    const citations = JSON.parse(fs.readFileSync('./templates/citations.json', 'utf-8'));
-    const { verbale, motivi, ricorsoAI } = store.get(token).payload || {};
-    const text = (ricorsoAI && ricorsoAI.length > 300)
-      ? ricorsoAI
-      : buildText(template, verbale || {}, motivi || {}, citations, template.target_total_words || 2000);
-
-    const out = path.join('output', 'ricorso-finale.pdf');
-    await createPdfFromText({ text, outPath: out, watermark: null });
-    res.json({ path: '/' + out });
-  } catch (e) {
-    console.error(e);
-    res.status(500).json({ error: 'Errore verifica/generazione PDF' });
-  }
-});
-
-app.get('/api/vademecum', (req, res) => {
-  const cfg = JSON.parse(fs.readFileSync('./config/legal-config.json', 'utf-8'));
-  const k = (req.query.path || 'gdp').toString().toLowerCase();
-  const entry = cfg.vademecum[k] || cfg.vademecum.gdp;
-  res.json({ message: `Attendi circa ${entry.attesa_giorni} giorni (${k.toUpperCase()}). Nota: valore configurabile.` });
+app.get('/ricorso-bozza.pdf', (req, res) => {
+  const filename = path.join(__dirname, 'ricorso-bozza.pdf');
+  res.sendFile(filename);
 });
 
 const PORT = process.env.PORT || 3000;
-app.listen(PORT, () => console.log('Server RICOMU su http://localhost:' + PORT));
+app.listen(PORT, () => console.log("App RICOMU attiva su porta " + PORT));
