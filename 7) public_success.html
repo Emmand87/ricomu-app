@@ -1,0 +1,23 @@
+<!doctype html>
+<html lang="it">
+<head><meta charset="utf-8"/><meta name="viewport" content="width=device-width, initial-scale=1"/><title>Pagamento riuscito</title></head>
+<body style="font-family:system-ui;max-width:720px;margin:40px auto;padding:0 16px;">
+  <h1>Pagamento riuscito ✅</h1>
+  <p>Stiamo preparando il PDF finale. Attendi un istante…</p>
+  <div id="msg" style="color:#666"></div>
+  <script>
+    (async ()=>{
+      const url = new URL(window.location.href);
+      const token = url.searchParams.get('token');
+      if(!token){ document.getElementById('msg').textContent='Token mancante'; return; }
+      const r = await fetch('/api/checkout/verify?token='+encodeURIComponent(token));
+      const j = await r.json();
+      if(j.error){ document.getElementById('msg').textContent=j.error; return; }
+      const a = document.createElement('a');
+      a.href = j.path; a.textContent = 'Scarica il PDF finale';
+      a.setAttribute('download','ricorso-finale.pdf');
+      document.body.appendChild(a);
+    })();
+  </script>
+</body>
+</html>
