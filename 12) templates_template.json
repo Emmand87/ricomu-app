@@ -1,0 +1,11 @@
+{
+  "ricorso_template": [
+    {"title":"Introduzione e premessa","base_text":"Il sottoscritto [Nome Cognome] ... art. [Articolo] CdS ... [Numero Verbale] ... [Data Notifica] ...","extensions":["Cita principi costituzionali (art. 24, 97, 111 Cost.)."],"min_words":300},
+    {"title":"Motivi principali fondanti","base_text":"1) Notifica tardiva ... art. 201 CdS ... 2) Segnaletica ... art. 142 CdS ... 3) Difetti documentali ...","extensions":["Aggiungi riferimenti a sentenze di legittimità."],"min_words":500},
+    {"title":"Motivi pretestuosi e rinforzo","base_text":"Si eccepiscono motivi ulteriori ... L. 241/1990 art. 3 ...","extensions":["Richiesta produzione documentale completa."],"min_words":600},
+    {"title":"Richiesta di accesso agli atti","base_text":"Ai sensi degli artt. 22 e ss. L. 241/1990 si chiede ...","extensions":["Indicare ufficio responsabile del procedimento."],"min_words":250},
+    {"title":"Eccezioni generiche di riserva","base_text":"Il ricorrente si riserva ogni ulteriore eccezione ...","extensions":[],"min_words":200},
+    {"title":"Conclusioni","base_text":"Si chiede l’annullamento del verbale ...","extensions":["Formula di stile conclusiva."],"min_words":120}
+  ],
+  "target_total_words": 2000
+}
