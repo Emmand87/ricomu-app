@@ -59,7 +59,7 @@
           <h3>Carica PDF/Foto del verbale</h3>
           <p class="muted small">Se hai già il file, caricalo e procedi subito.</p>
           <div class="upload-inline">
-            <!-- Importante: niente 'capture' per evitare apertura fotocamera su mobile -->
+            <!-- nessun 'capture' per evitare fotocamera su mobile -->
             <input id="heroFile" type="file" accept="application/pdf,image/jpeg,image/png" class="hidden" />
             <button id="heroUpload" class="btn btn-primary hero-full" type="button">Scegli file</button>
           </div>
@@ -81,9 +81,9 @@
   </header>
 
   <main class="container">
-    <!-- WORKSPACE: appare quando si procede -->
+    <!-- WORKSPACE -->
     <section id="workspace" class="card hidden">
-      <!-- CAMERA BLOCK (solo se scelgo “Apri fotocamera”) -->
+      <!-- CAMERA -->
       <div id="cameraBlock" class="camera hidden">
         <h2>Scansione con fotocamera</h2>
         <video id="camVideo" playsinline autoplay muted></video>
@@ -100,7 +100,7 @@
         <p id="scanStatus" class="muted"></p>
       </div>
 
-      <!-- FALLBACK: quando i dati non sono leggibili -->
+      <!-- FALLBACK debole -->
       <section id="fallback" class="notice hidden" role="alert">
         <h3>Purtroppo la scansione non è adeguata per rilevare i dati automaticamente.</h3>
         <p class="muted">Procedi a una nuova scansione oppure inserisci i dati a mano.</p>
@@ -114,6 +114,13 @@
       <section id="step2" class="subcard hidden">
         <h2>Riepilogo e motivi del ricorso</h2>
         <div id="summary"></div>
+        <!-- Qui comparirà l’avviso e si aprirà il form se il motivo non è determinato -->
+        <div id="centralFallback" class="notice hidden">
+          <p><strong>La scansione non ha rilevato i dati necessari al ricorso. Si prega di procedere con inserimento manuale.</strong></p>
+          <div class="notice-actions">
+            <button id="openManualFromCentral" class="btn btn-primary" type="button">Apri modulo</button>
+          </div>
+        </div>
       </section>
 
       <!-- STEP 3: CORREZIONI -->
@@ -140,12 +147,10 @@
         <div style="margin-top:10px;"><button class="btn" id="btnSaveCorrections" type="button">Salva correzioni & ricalcola</button></div>
       </section>
 
-      <!-- STEP 5: ANTEPRIMA -->
+      <!-- STEP 5: ANTEPRIMA (auto, senza testi extra e senza bottone) -->
       <section id="step5" class="subcard hidden">
-        <h2>Anteprima a tempo (non cliccabile/selezionabile)</h2>
-        <p class="muted">Watermark “BOZZA NON UTILIZZABILE”, visibile 30 secondi; poi si passa al pagamento.</p>
-        <div><button class="btn" id="btnPreview" type="button">Genera anteprima</button></div>
-        <div id="previewCanvasWrap" class="muted" style="margin-top:10px;"></div>
+        <h2>Anteprima ricorso</h2>
+        <div id="previewCanvasWrap" style="margin-top:10px;"></div>
         <p id="previewTimer" class="muted"></p>
       </section>
 
@@ -163,7 +168,7 @@
         <a class="btn btn-success" id="btnFinal" href="#" download>Scarica il PDF</a>
       </section>
 
-      <!-- STEP 8/9: ISTRUZIONI E VADEMECUM -->
+      <!-- STEP 8/9 -->
       <section id="step8" class="subcard hidden">
         <h2>Invio PEC / Raccomandata</h2>
         <p><strong>PEC:</strong> invia all’indirizzo PEC dell’ente indicato nel verbale. Oggetto: “Ricorso avverso verbale n. [Numero]”.</p>
@@ -218,7 +223,7 @@
     </div>
   </div>
 
-  <!-- Overlay loader -->
+  <!-- Loader -->
   <div id="loaderOverlay" class="loader-overlay hidden" aria-hidden="true">
     <div class="loader-card">
       <div class="spinner-ring" aria-label="Elaborazione in corso"></div>
