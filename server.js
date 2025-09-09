@@ -11,6 +11,7 @@ import axios from 'axios';
 import OpenAI from 'openai';
 import Stripe from 'stripe';
 import { fileURLToPath } from 'url';
+import aiRouter from './ai_routes.js';
 import { dirname } from 'path';
 import { extractPdfText } from './utils/pdfText.js';
 
@@ -22,6 +23,8 @@ const upload = multer({ storage: multer.memoryStorage() });
 
 app.use(cors());
 app.use(express.json({ limit: '8mb' }));
+
+app.use('/api/ai', aiRouter);
 
 // ➜ SERVE la UI (index.html, app.js, ecc.)
 app.use(express.static(path.join(__dirname, 'public')));
