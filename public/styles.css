@@ -39,8 +39,16 @@ html,body{margin:0;padding:0;background:linear-gradient(160deg,var(--bg),var(--b
   display:grid; gap:12px;
   grid-template-columns: repeat(3, 1fr);
   margin:12px 0 6px;
+  align-items:start;
 }
 @media (max-width:920px){ .hero-grid{ grid-template-columns:1fr; } }
+
+/* Scritta "oppure" solo su mobile */
+.hero-sep{ display:none; }
+@media (max-width:920px){
+  .hero-sep{ display:block; text-align:center; color:var(--muted); font-weight:700; margin:2px 0; }
+}
+
 .hero-card{
   background:rgba(255,255,255,0.05);
   border:1px solid var(--border);
@@ -101,3 +109,4 @@ html,body{margin:0;padding:0;background:linear-gradient(160deg,var(--bg),var(--b
   animation: spin 1s linear infinite; margin:0 auto;
 }
 @keyframes spin{ to{ transform: rotate(360deg); } }
+
