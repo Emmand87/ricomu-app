@@ -22,6 +22,15 @@ const hideLoader = () => {
   ov.classList.add('hidden');
 };
 
+/* ===== Smooth scroll helper ===== */
+function smoothScrollTo(elm) {
+  if (!elm) return;
+  // attendo un frame per essere certo che l’elemento sia visibile
+  setTimeout(() => {
+    elm.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  }, 60);
+}
+
 /* ===== Fallback visibilità ===== */
 function showExtractionFallback() {
   show('workspace');
@@ -79,6 +88,9 @@ async function startCamera() {
     el('scanThumbs').innerHTML = '';
     el('scanStatus').textContent = 'Inquadra il verbale e premi “Scatta”.';
     hide('btnRetake'); hide('btnAddPage'); hide('btnFinishScan');
+
+    // ➜ scroll automatico fluido al frame fotocamera
+    smoothScrollTo(el('cameraBlock'));
   } catch (e) {
     console.error(e);
     alert('Permesso fotocamera negato o non disponibile. Prova “Carica PDF/Foto” o “Inserisci a mano”.');
@@ -180,6 +192,7 @@ async function onHeroFileChange() {
     const data = await res.json();
     await afterExtract(data);
     el('heroStatus').textContent = 'File elaborato.';
+    // se non mostriamo la camera, restiamo in cima
   } catch (err) {
     console.error(err);
     el('heroStatus').textContent = 'Errore durante l’elaborazione.';
@@ -240,13 +253,11 @@ function isExtractionWeak(data) {
   const v = data?.verbale || {};
   const fields = ['number','authority','article','place','dateInfrazione','dateNotifica','amount','targa'];
   const filled = fields.filter(k => (v[k] !== undefined && v[k] !== null && String(v[k]).trim() !== ''));
-  // Trigger fallback se: testo troppo corto O pochissimi campi noti
   if (raw.length < 80 && filled.length < 2) return true;
   return false;
 }
 
 async function afterExtract(data) {
-  // se parsing scarso → mostra fallback e non proseguire
   if (isExtractionWeak(data)) {
     showExtractionFallback();
     return;
@@ -258,7 +269,6 @@ async function afterExtract(data) {
   await computeMotiviAI();
   renderSummary();
 
-  // Precompila i campi noti:
   ['number','authority','article','place','dateInfrazione','dateNotifica','amount','targa'].forEach(k => {
     const i='v_'+k; if (el(i)) el(i).value = state.verbale[k] || '';
   });
@@ -326,7 +336,7 @@ async function payNow(){
 /* ===== Bind UI ===== */
 // HERO
 el('heroStartCam').addEventListener('click', startCamera);
-el('heroUpload').addEventListener('click', triggerFileDialog);
+el('heroUpload').addEventListener('click', () => triggerFileDialog());
 el('heroFile').addEventListener('change', onHeroFileChange);
 el('openManual').addEventListener('click', openManualModal);
 
