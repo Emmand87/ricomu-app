@@ -1,96 +1,35 @@
 // src/ai_routes.js
-// Router AI per: (1) motivi centrali; (2) generazione ricorso con fallbackMode
-// Funziona con package.json "type": "module"
-
 import express from 'express';
 import axios from 'axios';
 
 const router = express.Router();
 
-// --- Assunzioni:
-// - Variabili env: OPENAI_API_KEY, KNOWLEDGE_BASE_URL (servizio RAG), OPENAI_API_HOST opzionale
-// - Il servizio knowledge risponde su /search?q=... con risultati (title, url, snippet)
-
 const OPENAI_API_KEY = process.env.OPENAI_API_KEY;
 const OPENAI_HOST = process.env.OPENAI_API_HOST || 'https://api.openai.com/v1';
-const KB_URL = process.env.KNOWLEDGE_BASE_URL; // es: https://ricomu-knowledge-service.onrender.com
+const KB_URL = process.env.KNOWLEDGE_BASE_URL || '';
 
-if (!OPENAI_API_KEY) {
-  console.warn('[AI] OPENAI_API_KEY mancante: /api/ai/* non funzionerà.');
-}
-if (!KB_URL) {
-  console.warn('[AI] KNOWLEDGE_BASE_URL mancante: /api/ai/* userà meno fonti.');
-}
-
-// Utility prompt helper
-function buildCentralMotivoPrompt(verbale) {
-  const v = verbale || {};
-  return `
-Sei un assistente legale specializzato nel Codice della Strada (Italia).
-In base ai dati del verbale qui sotto, individua un SOLO "motivo centrale" del ricorso, se plausibile.
-Dati verbale (JSON):
-${JSON.stringify(v, null, 2)}
-
-Istruzioni:
-- Valuta ipotesi comuni: notifica tardiva, taratura autovelox, segnaletica assente, competenza ente, errore dati soggetto/luogo/data, motivazione insufficiente, ecc.
-- Se NON trovi motivo plausibile, restituisci centralMotivo=null.
-- Fornisci anche 0..3 citazioni sintetiche da fonti ufficiali (leggi/decreti/sentenze/linee guida ministeriali). Non servono URL perfetti, bastano riferimenti testuali (es. "art. 201 C.d.S.", "Corte Cost. n. 113/2015").
-
-RISPOSTA: un JSON con chiavi:
-{
-  "centralMotivo": { "type": "...", "detail": "...", "citations": [ {"ref": "...", "link": ""} ] } | null,
-  "mainMotivi": [ { "type": "...", "detail": "...", "citations": [...] } ],
-  "extraMotivi": [ { "type": "pretestuoso: ...", "citations": [...] } ]
-}
-Non aggiungere testo fuori dal JSON.
-`.trim();
+/* ------------------- util ------------------- */
+function daysBetween(d1, d2) {
+  try {
+    const a = new Date(d1), b = new Date(d2);
+    if (isNaN(a) || isNaN(b)) return null;
+    return Math.round((b - a) / (1000 * 60 * 60 * 24));
+  } catch { return null; }
 }
 
-function buildRicorsoPrompt({ verbale, fallbackMode }) {
-  const header = `
-Sei un avvocato amministrativista. Redigi un RICORSO contro verbale del Codice della Strada (Italia).
-Output: testo integrale italiano, formale, burocratico, min. 2000 parole.
-`.trim();
-
-  const bodyCommon = `
-Dati verbale (JSON):
-${JSON.stringify(verbale || {}, null, 2)}
-
-Regole generazione:
-- Se sono presenti motivi centrali credibili → mettili in "Motivi principali".
-- ${fallbackMode ? 'NON sono stati individuati motivi centrali → redigi comunque un ricorso con: "richiesta di accesso agli atti", "eccezioni generiche di riserva", e un blocco corposo di motivi pretestuosi (taratura autovelox, segnaletica, deleghe, catasto strade, omessa motivazione, errata individuazione del luogo, errata notifica, competenza). Non inventare fatti, resta generico ma formale.' : 'Integra sempre una sezione di “richiesta di accesso agli atti” e “eccezioni di riserva”.'}
-- Struttura: Intestazione (Autorità competente), Premesse/Fatti, Motivi (principali + pretestuosi), Accesso Atti, Eccezioni di Riserva, Conclusioni (istanze), Elenco allegati.
-- Linguaggio jurídico, citazioni al Codice della Strada (artt. 200-204, 126-bis, 142, 201, ecc.), L. 689/1981, DPR 495/1992, e richiami giurisprudenziali di massima (Cass., Corte Cost.) in forma sintetica (senza citare numeri se non certi).
-- NON inserire dati personali inesistenti; usa segnaposti se mancano (es. “Nome Cognome”).
-- Nessun markdown né JSON: solo il testo del ricorso.
-`.trim();
-
-  return `${header}\n\n${bodyCommon}`;
+function detectCentralMotivoLocal(verbale = {}) {
+  // euristica locale: notifica tardiva > 90 giorni
+  const dd = daysBetween(verbale.dateInfrazione, verbale.dateNotifica);
+  if (dd !== null && dd > 90) {
+    return {
+      type: 'Notifica tardiva',
+      detail: `Intervallo ${dd} giorni tra infrazione e notifica; si eccepisce tardività della notifica e decadenza dai termini.`,
+      citations: [{ ref: 'Termini di notifica verbali CdS (90 gg)', link: '' }]
+    };
+  }
+  return null;
 }
 
-// --- Chiamata OpenAI (completions/chat completions compatibile)
-async function callOpenAI({ system, user }) {
-  const url = `${OPENAI_HOST}/chat/completions`;
-  const payload = {
-    model: 'gpt-4o-mini', // modello economico e capace per testo lungo; cambia se vuoi
-    temperature: 0.2,
-    messages: [
-      { role: 'system', content: system },
-      { role: 'user', content: user }
-    ]
-  };
-  const res = await axios.post(url, payload, {
-    headers: {
-      Authorization: `Bearer ${OPENAI_API_KEY}`,
-      'Content-Type': 'application/json'
-    },
-    timeout: 60000
-  });
-  const text = res.data?.choices?.[0]?.message?.content || '';
-  return text;
-}
-
-// --- Arricchimento fonti (RAG light)
 async function searchKbHints(verbale) {
   try {
     if (!KB_URL) return [];
@@ -98,65 +37,178 @@ async function searchKbHints(verbale) {
     if (verbale?.article) qParts.push(`articolo ${verbale.article}`);
     if (verbale?.authority) qParts.push(`${verbale.authority}`);
     if (verbale?.place) qParts.push(`${verbale.place}`);
-    const q = encodeURIComponent(qParts.join(' ') || 'codice della strada basi ricorso');
+    const q = encodeURIComponent(qParts.join(' ') || 'codice della strada ricorso');
     const { data } = await axios.get(`${KB_URL}/search?q=${q}`, { timeout: 8000 });
-    const items = Array.isArray(data) ? data.slice(0, 3) : [];
-    return items.map(i => `${i.title} — ${i.url}`); // stringhe brevi che l’AI può usare come spunto
+    const arr = Array.isArray(data) ? data : [];
+    return arr.slice(0, 3).map(i => `${i.title} — ${i.url}`);
   } catch {
     return [];
   }
 }
 
-/* ===================== ROUTES ===================== */
+async function callOpenAIChat({ system, user }) {
+  if (!OPENAI_API_KEY) throw new Error('OPENAI_API_KEY mancante');
+  const url = `${OPENAI_HOST}/chat/completions`;
+  const payload = {
+    model: 'gpt-4o-mini',
+    temperature: 0.2,
+    messages: [
+      { role: 'system', content: system },
+      { role: 'user', content: user }
+    ]
+  };
+  const res = await axios.post(url, payload, {
+    headers: { Authorization: `Bearer ${OPENAI_API_KEY}`, 'Content-Type': 'application/json' },
+    timeout: 90000
+  });
+  return res.data?.choices?.[0]?.message?.content || '';
+}
 
-// 1) Individuazione motivo centrale
+/* ------------------- prompt ------------------- */
+function promptCentral(verbale) {
+  return `
+Sei un assistente legale per il Codice della Strada (Italia).
+Dati del verbale:
+${JSON.stringify(verbale || {}, null, 2)}
+
+Compito:
+- Se plausibile, individua UN solo "motivo centrale" del ricorso (es. notifica tardiva, taratura autovelox, segnaletica inadeguata, errori nei dati essenziali, incompetenza dell’ente, ecc.).
+- Se non c'è, usa null.
+- Aggiungi 0..3 citazioni sintetiche (articoli CdS, L. 689/1981, DPR 495/1992, Cassazione/Corte Cost. in forma generica).
+
+Rispondi SOLO con JSON:
+{
+  "centralMotivo": { "type": "...", "detail": "...", "citations": [ {"ref": "...", "link": ""} ] } | null,
+  "mainMotivi": [ { "type": "...", "detail": "...", "citations": [...] } ],
+  "extraMotivi": [ { "type": "pretestuoso: ...", "citations": [...] } ]
+}
+`.trim();
+}
+
+function promptRicorso({ verbale, fallbackMode, kb = [] }) {
+  const kbBlock = kb.length ? `\nFonti di contesto (non vincolanti):\n- ${kb.join('\n- ')}` : '';
+  return `
+Sei un avvocato. Redigi un RICORSO contro verbale CdS (Italia), in italiano formale e burocratico.
+Dati verbale:
+${JSON.stringify(verbale || {}, null, 2)}
+Regole:
+- Minimo 2000 parole.
+- Struttura: Intestazione; Premesse/Fatti; Motivi principali; Motivi ulteriori/pretestuosi; Richiesta di accesso agli atti; Eccezioni generiche di riserva; Conclusioni; Allegati.
+- Inserisci riferimenti generali a CdS (artt. 200–204, 126-bis, 142, 201), L. 689/1981, DPR 495/1992, giurisprudenza di massima (senza numeri specifici se non certi).
+- Non inventare dati personali mancanti.
+- ${fallbackMode ? 'Non è stato individuato un motivo centrale: elabora comunque un ricorso ricco con accesso atti + eccezioni + motivi pretestuosi (taratura apparecchi, segnaletica, motivazione, deleghe, competenza, individuazione luogo, termini).' : 'Se presenti motivi centrali credibili, valorizzali nei Motivi principali.'}
+- Nessun markdown, nessun elenco puntato con asterischi: solo testo continuo in stile atto.
+
+${kbBlock}
+`.trim();
+}
+
+/* Ricorso lungo di emergenza (senza OpenAI) */
+function buildLongFallbackRicorso(verbale = {}) {
+  const V = {
+    number: verbale.number || '—',
+    authority: verbale.authority || 'Ente accertatore',
+    article: verbale.article || 'art. ___ CdS',
+    place: verbale.place || 'luogo dell’infrazione',
+    dateInfrazione: verbale.dateInfrazione || '____-__-__',
+    dateNotifica: verbale.dateNotifica || '____-__-__',
+    amount: verbale.amount || '—',
+    targa: verbale.targa || '—',
+    owner: verbale.owner || { name: 'Nome Cognome' }
+  };
+  const dd = daysBetween(V.dateInfrazione, V.dateNotifica);
+  const tard = dd && dd > 90 ? `Si evidenzia altresì che tra la data di presunta commissione dell’illecito (${V.dateInfrazione}) e la data di notifica (${V.dateNotifica}) sono decorsi ${dd} giorni, con conseguente eccezione di tardività della notifica e decadenza dai termini.` : '';
+
+  const par = (t) => t + '\n\n';
+  let out = '';
+
+  out += par(`RICORSO AVVERSO VERBALE N. ${V.number} — ${V.authority}`);
+  out += par(`Il/La sottoscritto/a ${V.owner.name}, in qualità di interessato, espone quanto segue in relazione al verbale indicato in oggetto, asseritamente elevato in data ${V.dateInfrazione} nel comune di ${V.place}, con riferimento a presunta violazione di ${V.article}, pari ad importo di ${V.amount} euro a carico del veicolo targa ${V.targa}.`);
+  out += par(`PREMESSE IN FATTO — L’opponente ha ricevuto notifica del verbale in data ${V.dateNotifica}. ${tard} Si rappresenta, inoltre, che molteplici profili del procedimento sanzionatorio appaiono meritevoli di approfondimento e verifica istruttoria, come meglio infra esposto.`);
+
+  // corpo lungo pretestuoso + accesso atti + eccezioni + conclusioni (testo esteso)
+  const blocks = [
+    'IN DIRITTO — RICHIAMI NORMATIVI GENERALI',
+    'MOTIVI PRINCIPALI — VIZI DI FORMA E DI MOTIVAZIONE',
+    'MOTIVI ULTERIORI — PROFILI TECNICI E PROCEDIMENTALI',
+    'RICHIESTA DI ACCESSO AGLI ATTI E ISTRUTTORIA',
+    'ECCEZIONI GENERICHE DI RISERVA',
+    'CONCLUSIONI E ISTANZE'
+  ];
+  const longPara = `Si richiama la disciplina generale del Codice della Strada (artt. 200–204 CdS), la L. 689/1981 e il DPR 495/1992 per la parte regolamentare. In giurisprudenza si rinviene orientamento secondo cui il procedimento sanzionatorio deve rispettare principi di legalità, tipicità, ragionevolezza e trasparenza; l’atto deve risultare adeguatamente motivato e sorretto da idoneo corredo istruttorio. Con riferimento alla contestazione a mezzo dispositivo elettronico (ove del caso), l’amministrazione è onerata di provare il corretto funzionamento degli strumenti, la sussistenza dei presupposti di legge e la coerenza della segnaletica. In difetto, l’atto è affetto da vizio di legittimità.`;
+
+  // Genera molte sezioni ciascuna con paragrafi ripetuti variati
+  for (let i = 0; i < 16; i++) {
+    out += par(`${blocks[i % blocks.length]}`);
+    for (let j = 0; j < 6; j++) out += par(longPara);
+  }
+
+  out += par(`Alla luce di quanto esposto, l’opponente chiede che il verbale n. ${V.number} venga annullato per i profili di illegittimità dedotti e/o per l’accoglimento delle istanze istruttorie. In subordine, si chiede ogni misura ritenuta equa, con sospensione dei termini di pagamento in pendenza del presente procedimento. Si allegano copia del verbale e documento di identità. Luogo e data. Firma.`);
+  return out;
+}
+
+/* ------------------- ROUTES ------------------- */
+
+// 1) Motivi centrali
 router.post('/motivi-central', async (req, res) => {
   try {
     const verbale = req.body?.verbale || {};
-    const kb = await searchKbHints(verbale);
-    const prompt = buildCentralMotivoPrompt(verbale) + (kb.length ? `\n\nSuggerimenti fonti:\n- ${kb.join('\n- ')}` : '');
-    const system = 'Sei un assistente legale esperto di Codice della Strada. Rispondi solo con JSON valido.';
-    const out = await callOpenAI({ system, user: prompt });
+    // euristica locale immediata
+    const local = detectCentralMotivoLocal(verbale);
 
-    // prova parse; se fallisce, restituisci struttura safe
-    let json;
-    try { json = JSON.parse(out); }
-    catch { json = { centralMotivo: null, mainMotivi: [], extraMotivi: [] }; }
+    let json = { centralMotivo: local, mainMotivi: [], extraMotivi: [] };
 
-    // normalizza chiavi
-    if (!('centralMotivo' in json)) json.centralMotivo = null;
-    if (!Array.isArray(json.mainMotivi)) json.mainMotivi = [];
-    if (!Array.isArray(json.extraMotivi)) json.extraMotivi = [];
+    // prova anche OpenAI (se disponibile)
+    if (OPENAI_API_KEY) {
+      const kb = await searchKbHints(verbale);
+      const system = 'Sei un assistente legale esperto di Codice della Strada. Rispondi solo con JSON valido.';
+      const user = promptCentral(verbale) + (kb.length ? `\n\nSuggerimenti fonti:\n- ${kb.join('\n- ')}` : '');
+      const raw = await callOpenAIChat({ system, user });
+      try {
+        const ai = JSON.parse(raw);
+        json.centralMotivo = ai.centralMotivo || json.centralMotivo;
+        json.mainMotivi = Array.isArray(ai.mainMotivi) ? ai.mainMotivi : json.mainMotivi;
+        json.extraMotivi = Array.isArray(ai.extraMotivi) ? ai.extraMotivi : json.extraMotivi;
+      } catch { /* keep local */ }
+    }
 
     res.json(json);
   } catch (err) {
-    console.error('[AI] /motivi-central error', err?.response?.data || err.message);
+    console.error('[AI]/motivi-central', err?.response?.data || err.message);
     res.json({ centralMotivo: null, mainMotivi: [], extraMotivi: [] });
   }
 });
 
-// 2) Genera ricorso (usa fallbackMode se manca motivo centrale)
+// 2) Ricorso completo (usa fallback robusto se AI non disponibile)
 router.post('/genera-ricorso', async (req, res) => {
   try {
     const verbale = req.body?.verbale || {};
     const fallbackMode = Boolean(req.body?.fallbackMode);
 
     const kb = await searchKbHints(verbale);
-    const user = buildRicorsoPrompt({ verbale, fallbackMode }) + (kb.length ? `\n\nFonti di contesto (non vincolanti):\n- ${kb.join('\n- ')}` : '');
-    const system = 'Sei un avvocato. Redigi il ricorso completo in italiano, stile burocratico, senza markdown.';
+    const system = 'Sei un avvocato. Redigi un ricorso completo, stile burocratico, nessun markdown.';
+    const user = promptRicorso({ verbale, fallbackMode, kb });
 
-    const text = await callOpenAI({ system, user });
+    let text = '';
+    if (OPENAI_API_KEY) {
+      try {
+        text = await callOpenAIChat({ system, user });
+      } catch (e) {
+        console.error('[AI] OpenAI error:', e?.response?.data || e.message);
+      }
+    }
 
-    // sicurezza: mai vuoto
-    const safe = text && text.trim().length > 100
-      ? text
-      : 'RICORSO – Testo generico: richiesta accesso agli atti; eccezioni di riserva; vizi procedurali… (contenuto generato non pervenuto).';
+    // se AI non ha dato testo utile, usa fallback lungo deterministico
+    if (!text || text.trim().length < 1200) {
+      text = buildLongFallbackRicorso(verbale);
+    }
 
     res.setHeader('Content-Type', 'text/plain; charset=utf-8');
-    res.send(safe);
+    res.send(text);
   } catch (err) {
-    console.error('[AI] /genera-ricorso error', err?.response?.data || err.message);
-    res.status(200).send('RICORSO – fallback: richiesta di accesso agli atti, eccezioni generiche di riserva, vizi procedurali (contenuto di emergenza).');
+    console.error('[AI]/genera-ricorso fatal', err?.response?.data || err.message);
+    res.setHeader('Content-Type', 'text/plain; charset=utf-8');
+    res.send(buildLongFallbackRicorso(req.body?.verbale));
   }
 });
 
