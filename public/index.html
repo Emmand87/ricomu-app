@@ -42,7 +42,7 @@
         </span>
       </p>
 
-      <!-- HERO: 3 box azione nella prima schermata -->
+      <!-- HERO: 3 box -->
       <div class="hero-grid">
         <!-- 1) Fotocamera -->
         <div class="hero-card">
@@ -51,7 +51,6 @@
           <button id="heroStartCam" class="btn btn-primary hero-full" type="button">Apri fotocamera</button>
         </div>
 
-        <!-- separatore mobile -->
         <div class="hero-sep" aria-hidden="true">oppure</div>
 
         <!-- 2) Upload -->
@@ -59,14 +58,12 @@
           <h3>Carica PDF/Foto del verbale</h3>
           <p class="muted small">Se hai già il file, caricalo e procedi subito.</p>
           <div class="upload-inline">
-            <!-- nessun 'capture' per evitare fotocamera su mobile -->
             <input id="heroFile" type="file" accept="application/pdf,image/jpeg,image/png" class="hidden" />
             <button id="heroUpload" class="btn btn-primary hero-full" type="button">Scegli file</button>
           </div>
           <p id="heroStatus" class="muted small"></p>
         </div>
 
-        <!-- separatore mobile -->
         <div class="hero-sep" aria-hidden="true">oppure</div>
 
         <!-- 3) Inserimento manuale -->
@@ -83,6 +80,10 @@
   <main class="container">
     <!-- WORKSPACE -->
     <section id="workspace" class="card hidden">
+      <div class="workspace-head">
+        <button id="btnReset" class="btn btn-danger btn-sm" type="button">Riparti da capo</button>
+      </div>
+
       <!-- CAMERA -->
       <div id="cameraBlock" class="camera hidden">
         <h2>Scansione con fotocamera</h2>
@@ -100,7 +101,7 @@
         <p id="scanStatus" class="muted"></p>
       </div>
 
-      <!-- FALLBACK debole -->
+      <!-- FALLBACK parsing scarso -->
       <section id="fallback" class="notice hidden" role="alert">
         <h3>Purtroppo la scansione non è adeguata per rilevare i dati automaticamente.</h3>
         <p class="muted">Procedi a una nuova scansione oppure inserisci i dati a mano.</p>
@@ -114,7 +115,6 @@
       <section id="step2" class="subcard hidden">
         <h2>Riepilogo e motivi del ricorso</h2>
         <div id="summary"></div>
-        <!-- Qui comparirà l’avviso e si aprirà il form se il motivo non è determinato -->
         <div id="centralFallback" class="notice hidden">
           <p><strong>La scansione non ha rilevato i dati necessari al ricorso. Si prega di procedere con inserimento manuale.</strong></p>
           <div class="notice-actions">
@@ -147,9 +147,8 @@
         <div style="margin-top:10px;"><button class="btn" id="btnSaveCorrections" type="button">Salva correzioni & ricalcola</button></div>
       </section>
 
-      <!-- STEP 5: ANTEPRIMA (auto, senza testi extra e senza bottone) -->
+      <!-- STEP 5: ANTEPRIMA (auto, nessun bottone) -->
       <section id="step5" class="subcard hidden">
-        <h2>Anteprima ricorso</h2>
         <div id="previewCanvasWrap" style="margin-top:10px;"></div>
         <p id="previewTimer" class="muted"></p>
       </section>
