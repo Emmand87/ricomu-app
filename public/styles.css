@@ -50,6 +50,9 @@ html,body{margin:0;padding:0;background:linear-gradient(160deg,var(--bg),var(--b
 }
 .upload-inline{display:flex;gap:8px;flex-wrap:wrap;align-items:center}
 
+/* full width buttons in hero */
+.hero-card .btn.hero-full{ width:100%; }
+
 /* CAMERA */
 .camera{position:relative;border-radius:16px;overflow:hidden;border:1px dashed var(--border);padding:12px}
 #camVideo,#camCanvas{width:100%;border-radius:12px;background:#000;aspect-ratio:3/4;object-fit:cover}
