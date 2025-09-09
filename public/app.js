@@ -25,10 +25,7 @@ const hideLoader = () => {
 /* ===== Smooth scroll helper ===== */
 function smoothScrollTo(elm) {
   if (!elm) return;
-  // attendo un frame per essere certo che l’elemento sia visibile
-  setTimeout(() => {
-    elm.scrollIntoView({ behavior: 'smooth', block: 'start' });
-  }, 60);
+  setTimeout(() => { elm.scrollIntoView({ behavior: 'smooth', block: 'start' }); }, 60);
 }
 
 /* ===== Fallback visibilità ===== */
@@ -83,13 +80,11 @@ async function startCamera() {
     video.srcObject = stream;
     await video.play();
 
-    // reset thumbnails & pulsanti
     state.scan.images = [];
     el('scanThumbs').innerHTML = '';
     el('scanStatus').textContent = 'Inquadra il verbale e premi “Scatta”.';
     hide('btnRetake'); hide('btnAddPage'); hide('btnFinishScan');
 
-    // ➜ scroll automatico fluido al frame fotocamera
     smoothScrollTo(el('cameraBlock'));
   } catch (e) {
     console.error(e);
@@ -112,7 +107,6 @@ function drawCurrentFrame() {
   const ctx = canvas.getContext('2d');
   ctx.drawImage(video, 0, 0, w, h);
 
-  // grayscale + piccolo boost contrasto
   const img = ctx.getImageData(0, 0, w, h);
   const d = img.data;
   for (let i=0;i<d.length;i+=4) {
@@ -192,7 +186,6 @@ async function onHeroFileChange() {
     const data = await res.json();
     await afterExtract(data);
     el('heroStatus').textContent = 'File elaborato.';
-    // se non mostriamo la camera, restiamo in cima
   } catch (err) {
     console.error(err);
     el('heroStatus').textContent = 'Errore durante l’elaborazione.';
@@ -223,7 +216,7 @@ async function submitManual() {
       indirizzo: el('m_addr').value || '',
       cf: el('m_cf').value || ''
     },
-    rawText: '' // opzionale
+    rawText: ''
   };
   closeManualModal();
   hideExtractionFallback();
