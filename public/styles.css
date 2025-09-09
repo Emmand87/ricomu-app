@@ -1,0 +1,42 @@
+:root{
+  --bg:#0b1220;
+  --bg-soft:#0f1730;
+  --primary:#4f46e5;
+  --primary-2:#7c3aed;
+  --text:#e5e7eb;
+  --muted:#94a3b8;
+  --card:#0f172a;
+  --border:#1f2a44;
+  --success:#10b981;
+  --danger:#ef4444;
+}
+*{box-sizing:border-box}
+html,body{margin:0;padding:0;background:linear-gradient(160deg,var(--bg),var(--bg-soft));color:var(--text);font-family:system-ui,-apple-system,Segoe UI,Roboto,Arial,sans-serif}
+.container{max-width:960px;margin:0 auto;padding:24px}
+.header{position:relative;overflow:hidden}
+.header-inner{padding:48px 24px 24px}
+.brand{display:flex;align-items:center;gap:12px}
+.logo{width:40px;height:40px;border-radius:12px;background:linear-gradient(135deg,var(--primary),var(--primary-2));display:grid;place-items:center;font-weight:700}
+.tagline{color:var(--muted);margin:8px 0 16px}
+.hero-wave{height:8px;background:linear-gradient(90deg,var(--primary),var(--primary-2))}
+.card{background:rgba(255,255,255,0.04);border:1px solid var(--border);border-radius:16px;padding:20px;margin:16px 0;backdrop-filter:blur(6px)}
+.muted{color:var(--muted)}
+.grid{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+@media (max-width:720px){.grid{grid-template-columns:1fr}}
+.btn{display:inline-block;background:var(--primary);color:#fff;padding:10px 14px;border-radius:10px;border:0;cursor:pointer;text-decoration:none}
+.btn:hover{opacity:.95}
+.btn-ghost{background:transparent;border:1px solid var(--border)}
+.btn-outline{background:transparent;border:1px solid var(--primary);color:#fff}
+.btn-primary{background:linear-gradient(135deg,var(--primary),var(--primary-2))}
+.btn-success{background:var(--success)}
+.footer{border-top:1px solid var(--border);margin-top:24px}
+.header .cta-row{display:flex;gap:12px;flex-wrap:wrap}
+
+.camera{position:relative;border-radius:16px;overflow:hidden;border:1px dashed var(--border);padding:12px}
+#camVideo,#camCanvas{width:100%;border-radius:12px;background:#000;aspect-ratio:3/4;object-fit:cover}
+.cam-overlay{position:absolute;inset:12px;border:2px dashed rgba(255,255,255,.25);border-radius:12px;pointer-events:none}
+.cam-controls{display:flex;gap:8px;flex-wrap:wrap;margin-top:10px}
+.thumbs{display:flex;gap:8px;margin-top:10px;flex-wrap:wrap}
+.thumbs img{width:72px;height:96px;object-fit:cover;border-radius:8px;border:1px solid var(--border)}
+.upload-row{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+.hidden{display:none}
