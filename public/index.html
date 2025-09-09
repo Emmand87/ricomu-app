@@ -42,31 +42,31 @@
         </span>
       </p>
 
-      <!-- HERO: 3 box azione “tutto nella prima schermata” -->
+      <!-- HERO: 3 box azione nella prima schermata -->
       <div class="hero-grid">
-        <!-- Box 1: Scansione fotocamera -->
+        <!-- 1) Fotocamera -->
         <div class="hero-card">
           <h3>Scansiona il verbale con la fotocamera</h3>
-          <p class="muted small">Ottimizzato per mobile: inquadra, scatta, aggiungi più pagine e invia.</p>
-          <button id="heroStartCam" class="btn btn-primary">Apri fotocamera</button>
+          <p class="muted small">Inquadra, scatta, aggiungi più pagine e invia.</p>
+          <button id="heroStartCam" class="btn btn-primary" type="button">Apri fotocamera</button>
         </div>
 
-        <!-- Box 2: Upload PDF/Foto -->
+        <!-- 2) Upload -->
         <div class="hero-card">
           <h3>Carica PDF/Foto del verbale</h3>
-          <p class="muted small">Se hai già il file, caricalo qui e procedi subito.</p>
+          <p class="muted small">Se hai già il file, caricalo e procedi subito.</p>
           <div class="upload-inline">
-            <input id="heroFile" type="file" accept="image/*,.jpg,.jpeg,.png,application/pdf" capture="environment"/>
-            <button id="heroUpload" class="btn">Leggi la multa</button>
+            <input id="heroFile" type="file" accept="image/*,.jpg,.jpeg,.png,application/pdf" capture="environment" class="hidden" />
+            <button id="heroUpload" class="btn" type="button">Scegli file</button>
           </div>
           <p id="heroStatus" class="muted small"></p>
         </div>
 
-        <!-- Box 3: Inserimento manuale -->
+        <!-- 3) Inserimento manuale -->
         <div class="hero-card">
           <h3>Inserisci a mano i dati del verbale</h3>
           <p class="muted small">Per verbali illeggibili o scritti a mano.</p>
-          <button id="openManual" class="btn btn-outline">Apri modulo</button>
+          <button id="openManual" class="btn btn-outline" type="button">Apri modulo</button>
         </div>
       </div>
     </div>
@@ -74,99 +74,100 @@
   </header>
 
   <main class="container">
-    <!-- STEP 1A: SCANSIONE FOTOCAMERA -->
-    <section id="scan" class="card">
-      <h2>Scansiona il verbale con la fotocamera</h2>
-      <div id="cameraBlock" class="camera">
+    <!-- WORKSPACE: appare quando si procede -->
+    <section id="workspace" class="card hidden">
+      <!-- CAMERA BLOCK (solo se scelgo “Apri fotocamera”) -->
+      <div id="cameraBlock" class="camera hidden">
+        <h2>Scansione con fotocamera</h2>
         <video id="camVideo" playsinline autoplay muted></video>
         <canvas id="camCanvas" class="hidden"></canvas>
         <div class="cam-overlay"></div>
         <div class="cam-controls">
-          <button id="btnStartCam" class="btn btn-outline">Attiva fotocamera</button>
-          <button id="btnShot" class="btn btn-primary hidden">Scatta</button>
-          <button id="btnRetake" class="btn btn-ghost hidden">Riscatta</button>
-          <button id="btnAddPage" class="btn btn-outline hidden">Aggiungi pagina</button>
-          <button id="btnFinishScan" class="btn btn-success hidden">Invia scansioni</button>
+          <button id="btnShot" class="btn btn-primary" type="button">Scatta</button>
+          <button id="btnRetake" class="btn btn-ghost hidden" type="button">Riscatta</button>
+          <button id="btnAddPage" class="btn btn-outline hidden" type="button">Aggiungi pagina</button>
+          <button id="btnFinishScan" class="btn btn-success hidden" type="button">Invia scansioni</button>
+          <button id="btnCloseCam" class="btn btn-ghost" type="button">Chiudi fotocamera</button>
         </div>
         <div id="scanThumbs" class="thumbs"></div>
         <p id="scanStatus" class="muted"></p>
       </div>
-    </section>
 
-    <!-- STEP 1B: UPLOAD FILE CLASSICO (rimane come fallback/ancora) -->
-    <section id="upload" class="card">
-      <h2>Carica PDF o foto</h2>
-      <div class="upload-row">
-        <input id="file" type="file" accept="image/*,.jpg,.jpeg,.png,application/pdf" capture="environment"/>
-        <button class="btn" id="btnUpload">Leggi la multa</button>
-      </div>
-      <p id="s1status" class="muted"></p>
-    </section>
+      <!-- FALLBACK: quando i dati non sono leggibili -->
+      <section id="fallback" class="notice hidden" role="alert">
+        <h3>Purtroppo la scansione non è adeguata per rilevare i dati automaticamente.</h3>
+        <p class="muted">Procedi a una nuova scansione oppure inserisci i dati a mano.</p>
+        <div class="notice-actions">
+          <button id="fbRetryScan" class="btn btn-outline" type="button">Nuova scansione</button>
+          <button id="fbManual" class="btn btn-primary" type="button">Inserisci i dati a mano</button>
+        </div>
+      </section>
 
-    <!-- STEP 2: RIEPILOGO / MOTIVI -->
-    <section id="step2" class="card hidden">
-      <h2>Riepilogo e motivi del ricorso</h2>
-      <div id="summary"></div>
-    </section>
+      <!-- STEP 2: RIEPILOGO / MOTIVI -->
+      <section id="step2" class="subcard hidden">
+        <h2>Riepilogo e motivi del ricorso</h2>
+        <div id="summary"></div>
+      </section>
 
-    <!-- STEP 3: CORREZIONI -->
-    <section id="step3" class="card hidden">
-      <h2>Correggi eventuali errori</h2>
-      <div class="grid">
-        <div><label>Numero verbale</label><input id="v_number" type="text"/></div>
-        <div><label>Autorità</label><input id="v_authority" type="text"/></div>
-        <div><label>Articolo CdS</label><input id="v_article" type="text"/></div>
-        <div><label>Luogo</label><input id="v_place" type="text"/></div>
-        <div><label>Data infrazione</label><input id="v_dateInfrazione" type="date"/></div>
-        <div><label>Data notifica</label><input id="v_dateNotifica" type="date"/></div>
-        <div><label>Importo (€)</label><input id="v_amount" type="number"/></div>
-        <div><label>Targa</label><input id="v_targa" type="text"/></div>
-      </div>
-      <p class="muted">Dati anagrafici</p>
-      <div class="grid">
-        <div><label>Nome Cognome</label><input id="u_name" type="text"/></div>
-        <div><label>Comune</label><input id="u_comune" type="text"/></div>
-        <div><label>Data di nascita</label><input id="u_dob" type="date"/></div>
-        <div><label>Indirizzo</label><input id="u_addr" type="text"/></div>
-        <div><label>Codice Fiscale</label><input id="u_cf" type="text"/></div>
-      </div>
-      <div style="margin-top:10px;"><button class="btn" id="btnSaveCorrections">Salva correzioni & ricalcola</button></div>
-    </section>
+      <!-- STEP 3: CORREZIONI -->
+      <section id="step3" class="subcard hidden">
+        <h2>Correggi eventuali errori</h2>
+        <div class="grid">
+          <div><label>Numero verbale</label><input id="v_number" type="text"/></div>
+          <div><label>Autorità</label><input id="v_authority" type="text"/></div>
+          <div><label>Articolo CdS</label><input id="v_article" type="text"/></div>
+          <div><label>Luogo</label><input id="v_place" type="text"/></div>
+          <div><label>Data infrazione</label><input id="v_dateInfrazione" type="date"/></div>
+          <div><label>Data notifica</label><input id="v_dateNotifica" type="date"/></div>
+          <div><label>Importo (€)</label><input id="v_amount" type="number"/></div>
+          <div><label>Targa</label><input id="v_targa" type="text"/></div>
+        </div>
+        <p class="muted">Dati anagrafici</p>
+        <div class="grid">
+          <div><label>Nome Cognome</label><input id="u_name" type="text"/></div>
+          <div><label>Comune</label><input id="u_comune" type="text"/></div>
+          <div><label>Data di nascita</label><input id="u_dob" type="date"/></div>
+          <div><label>Indirizzo</label><input id="u_addr" type="text"/></div>
+          <div><label>Codice Fiscale</label><input id="u_cf" type="text"/></div>
+        </div>
+        <div style="margin-top:10px;"><button class="btn" id="btnSaveCorrections" type="button">Salva correzioni & ricalcola</button></div>
+      </section>
 
-    <!-- STEP 5: ANTEPRIMA -->
-    <section id="step5" class="card hidden">
-      <h2>Anteprima a tempo (non cliccabile/selezionabile)</h2>
-      <p class="muted">Watermark “BOZZA NON UTILIZZABILE”, visibile 30 secondi; poi si passa al pagamento.</p>
-      <div><button class="btn" id="btnPreview">Genera anteprima</button></div>
-      <div id="previewCanvasWrap" class="muted" style="margin-top:10px;"></div>
-      <p id="previewTimer" class="muted"></p>
-    </section>
+      <!-- STEP 5: ANTEPRIMA -->
+      <section id="step5" class="subcard hidden">
+        <h2>Anteprima a tempo (non cliccabile/selezionabile)</h2>
+        <p class="muted">Watermark “BOZZA NON UTILIZZABILE”, visibile 30 secondi; poi si passa al pagamento.</p>
+        <div><button class="btn" id="btnPreview" type="button">Genera anteprima</button></div>
+        <div id="previewCanvasWrap" class="muted" style="margin-top:10px;"></div>
+        <p id="previewTimer" class="muted"></p>
+      </section>
 
-    <!-- STEP 6: PAGAMENTO -->
-    <section id="step6" class="card hidden">
-      <h2>Pagamento</h2>
-      <p id="price" class="muted" style="font-weight:bold;"></p>
-      <div><button class="btn btn-primary" id="btnPay">Paga con Stripe (test)</button></div>
-      <p class="muted">Carta test: 4242 4242 4242 4242</p>
-    </section>
+      <!-- STEP 6: PAGAMENTO -->
+      <section id="step6" class="subcard hidden">
+        <h2>Pagamento</h2>
+        <p id="price" class="muted" style="font-weight:bold;"></p>
+        <div><button class="btn btn-primary" id="btnPay" type="button">Paga con Stripe (test)</button></div>
+        <p class="muted">Carta test: 4242 4242 4242 4242</p>
+      </section>
 
-    <!-- STEP 7: FINALE -->
-    <section id="step7" class="card hidden">
-      <h2>Scarica PDF finale</h2>
-      <a class="btn btn-success" id="btnFinal" href="#" download>Scarica il PDF</a>
-    </section>
+      <!-- STEP 7: FINALE -->
+      <section id="step7" class="subcard hidden">
+        <h2>Scarica PDF finale</h2>
+        <a class="btn btn-success" id="btnFinal" href="#" download>Scarica il PDF</a>
+      </section>
 
-    <!-- STEP 8/9: ISTRUZIONI E VADEMECUM -->
-    <section id="step8" class="card hidden">
-      <h2>Invio PEC / Raccomandata</h2>
-      <p><strong>PEC:</strong> invia all’indirizzo PEC dell’ente indicato nel verbale. Oggetto: “Ricorso avverso verbale n. [Numero]”.</p>
-      <p><strong>Raccomandata A/R:</strong> stampa PDF, firma, allega documento, busta con dicitura “Ricorso avverso verbale n. [Numero]”.</p>
-    </section>
+      <!-- STEP 8/9: ISTRUZIONI E VADEMECUM -->
+      <section id="step8" class="subcard hidden">
+        <h2>Invio PEC / Raccomandata</h2>
+        <p><strong>PEC:</strong> invia all’indirizzo PEC dell’ente indicato nel verbale. Oggetto: “Ricorso avverso verbale n. [Numero]”.</p>
+        <p><strong>Raccomandata A/R:</strong> stampa PDF, firma, allega documento, busta con dicitura “Ricorso avverso verbale n. [Numero]”.</p>
+      </section>
 
-    <section id="step9" class="card hidden">
-      <h2>Vademecum</h2>
-      <p id="vademecum"></p>
-      <p class="muted">Parametri configurabili. Verifica normativa aggiornata.</p>
+      <section id="step9" class="subcard hidden">
+        <h2>Vademecum</h2>
+        <p id="vademecum"></p>
+        <p class="muted">Parametri configurabili. Verifica normativa aggiornata.</p>
+      </section>
     </section>
   </main>
 
@@ -184,7 +185,7 @@
     <div class="modal-card">
       <div class="modal-head">
         <h3>Inserisci i dati del verbale</h3>
-        <button id="closeManual" class="btn btn-ghost small">Chiudi</button>
+        <button id="closeManual" class="btn btn-ghost small" type="button">Chiudi</button>
       </div>
       <div class="grid">
         <div><label>Numero verbale</label><input id="m_number" type="text"/></div>
@@ -205,7 +206,7 @@
         <div><label>Codice Fiscale</label><input id="m_cf" type="text"/></div>
       </div>
       <div class="modal-actions">
-        <button id="submitManual" class="btn btn-primary">Procedi</button>
+        <button id="submitManual" class="btn btn-primary" type="button">Procedi</button>
       </div>
     </div>
   </div>
@@ -222,4 +223,3 @@
   <script src="/app.js" defer></script>
 </body>
 </html>
-
