@@ -40,3 +40,36 @@ html,body{margin:0;padding:0;background:linear-gradient(160deg,var(--bg),var(--b
 .thumbs img{width:72px;height:96px;object-fit:cover;border-radius:8px;border:1px solid var(--border)}
 .upload-row{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
 .hidden{display:none}
+/* ========= Loader Overlay ========= */
+.loader-overlay{
+  position:fixed; inset:0; background:rgba(11,18,32,.75);
+  display:grid; place-items:center; z-index:9999; backdrop-filter:blur(3px);
+}
+.loader-overlay.hidden{ display:none; }
+
+.loader-card{
+  background:linear-gradient(160deg,rgba(15,23,42,.9),rgba(9,14,26,.9));
+  border:1px solid var(--border); border-radius:16px; padding:24px 28px; text-align:center;
+  box-shadow:0 10px 30px rgba(0,0,0,.35);
+  width:min(420px,92vw);
+}
+
+.loader-title{ font-weight:700; margin:12px 0 6px; }
+.loader-sub{ color:var(--muted); margin:0; line-height:1.4; }
+
+/* Spinner “ring” */
+.spinner-ring{
+  width:64px; height:64px; border-radius:50%;
+  border:6px solid rgba(255,255,255,.15);
+  border-top-color: var(--primary);
+  animation: spin 1s linear infinite;
+  margin:0 auto;
+}
+@keyframes spin{ to{ transform: rotate(360deg); } }
+
+/* (Extra) Effetto entrata card */
+@keyframes popIn{
+  from{ transform:scale(.96); opacity:0; }
+  to{ transform:scale(1); opacity:1; }
+}
+.loader-card{ animation: popIn .2s ease-out; }
