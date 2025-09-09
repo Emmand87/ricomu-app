@@ -35,7 +35,7 @@
         <h1>RICOMU — Ricorso Multe in Italia</h1>
       </div>
       <p class="tagline">
-        Scansiona la multa e fai ricorso in 3 minuti.
+        <strong>Scansiona la multa e fai ricorso in 3 minuti.</strong>
         <span class="muted">
           Fonti ufficiali sempre aggiornate tramite AI.
           <strong>Oltre il 90% di ricorsi vinti!</strong> Prova RICOMU.
@@ -51,16 +51,23 @@
           <button id="heroStartCam" class="btn btn-primary hero-full" type="button">Apri fotocamera</button>
         </div>
 
+        <!-- separatore mobile -->
+        <div class="hero-sep" aria-hidden="true">oppure</div>
+
         <!-- 2) Upload -->
         <div class="hero-card">
           <h3>Carica PDF/Foto del verbale</h3>
           <p class="muted small">Se hai già il file, caricalo e procedi subito.</p>
           <div class="upload-inline">
-            <input id="heroFile" type="file" accept="image/*,.jpg,.jpeg,.png,application/pdf" capture="environment" class="hidden" />
+            <!-- Importante: niente 'capture' per evitare apertura fotocamera su mobile -->
+            <input id="heroFile" type="file" accept="application/pdf,image/jpeg,image/png" class="hidden" />
             <button id="heroUpload" class="btn btn-primary hero-full" type="button">Scegli file</button>
           </div>
           <p id="heroStatus" class="muted small"></p>
         </div>
+
+        <!-- separatore mobile -->
+        <div class="hero-sep" aria-hidden="true">oppure</div>
 
         <!-- 3) Inserimento manuale -->
         <div class="hero-card">
