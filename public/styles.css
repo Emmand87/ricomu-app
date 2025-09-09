@@ -32,7 +32,12 @@ html,body{margin:0;padding:0;background:linear-gradient(160deg,var(--bg),var(--b
 .btn-outline{background:transparent;border:1px solid var(--primary);color:#fff}
 .btn-primary{background:linear-gradient(135deg,var(--primary),var(--primary-2))}
 .btn-success{background:var(--success)}
+.btn-danger{background:var(--danger); color:#fff;}
+.btn-sm{padding:8px 12px; font-size:14px;}
 .footer{border-top:1px solid var(--border);margin-top:24px}
+
+/* Header del workspace */
+.workspace-head{display:flex;justify-content:flex-end;margin-bottom:8px}
 
 /* HERO layout */
 .hero-grid{
@@ -43,7 +48,7 @@ html,body{margin:0;padding:0;background:linear-gradient(160deg,var(--bg),var(--b
 }
 @media (max-width:920px){ .hero-grid{ grid-template-columns:1fr; } }
 
-/* "oppure" solo su mobile */
+/* "oppure" su mobile */
 .hero-sep{ display:none; }
 @media (max-width:920px){
   .hero-sep{ display:block; text-align:center; color:var(--muted); font-weight:700; margin:2px 0; }
