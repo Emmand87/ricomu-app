@@ -3,7 +3,8 @@ let state = {
   verbale: null,
   motivi: null,
   token: null,
-  scan: { stream: null, images: [] }
+  scan: { stream: null, images: [] },
+  articles: [] // articoli CdS selezionati (chips)
 };
 
 const el   = id => document.getElementById(id);
@@ -25,15 +26,16 @@ const smoothScrollTo = node => setTimeout(()=>node?.scrollIntoView({behavior:'sm
 /* Reset totale */
 function resetAll(){
   try { state.scan.stream?.getTracks().forEach(t=>t.stop()); } catch{}
-  state = { verbale:null, motivi:null, token:null, scan:{stream:null, images:[]} };
+  state = { verbale:null, motivi:null, token:null, scan:{stream:null, images:[]}, articles: [] };
 
   const ids = [
     'v_number','v_authority','v_article','v_place','v_placeSpecific','v_dateInfrazione','v_dateNotifica','v_amount','v_targa',
     'u_name','u_comune','u_dob','u_addr','u_cf','u_extra',
-    'm_number','m_authority','m_article','m_placeComune','m_placeSpecific','m_dateInfrazione','m_dateNotifica','m_amount','m_targa',
+    'm_number','m_authority','m_article_search','m_placeComune','m_placeSpecific','m_dateInfrazione','m_dateNotifica','m_amount','m_targa',
     'm_name','m_comune','m_dob','m_addr','m_cf','m_extra'
   ];
   ids.forEach(id=>{ const i=el(id); if(i) i.value=''; });
+  el('m_articles_chips').innerHTML='';
 
   el('summary').innerHTML=''; el('previewCanvasWrap').innerHTML=''; el('previewTimer').textContent='';
   el('scanThumbs').innerHTML=''; el('scanStatus').textContent='';
@@ -124,11 +126,12 @@ async function onHeroFileChange(){
   finally{ hideLoader(); el('heroFile').value=''; }
 }
 
-/* ======== MODALE MANUALE + AUTOCOMPLETE ======== */
+/* ======== MODALE MANUALE + AUTOCOMPLETE + CHIPS ======== */
 function openManualModal(){ el('manualModal').classList.remove('hidden'); }
 function closeManualModal(){ el('manualModal').classList.add('hidden'); }
 
-function bindTypeahead(inputId, listId, endpoint, allowMulti=false){
+// generico: suggerimenti
+function bindTypeahead(inputId, listId, endpoint, onPick){
   const input = el(inputId);
   const box = el(listId);
 
@@ -139,20 +142,13 @@ function bindTypeahead(inputId, listId, endpoint, allowMulti=false){
       const res = await fetch(`/api/meta/${endpoint}?q=${encodeURIComponent(q)}`);
       const items = await res.json();
       if(!Array.isArray(items) || !items.length){ box.classList.add('hidden'); return; }
-      // costruisci lista
       box.innerHTML = items.map(v=>`<li>${v}</li>`).join('');
       box.classList.remove('hidden');
-      // click su voce
       box.querySelectorAll('li').forEach(li=>{
         li.addEventListener('click', ()=>{
-          if (allowMulti && input.value.trim()){
-            // multi: concatena con virgola e spazio
-            const base = input.value.replace(/\s*,\s*$/,'').trim();
-            input.value = base ? `${base}, ${li.textContent}` : li.textContent;
-          } else {
-            input.value = li.textContent;
-          }
+          onPick(li.textContent);
           box.classList.add('hidden'); box.innerHTML='';
+          input.value=''; // svuota dopo pick (UX)
         });
       });
     }catch(e){ console.error('autocomplete error', e); }
@@ -164,12 +160,31 @@ function bindTypeahead(inputId, listId, endpoint, allowMulti=false){
   });
 }
 
-// attiva i 3 autocompletes (popup piccolo, max ~40 risultati lato server)
-bindTypeahead('m_authority','sugg_authority','authorities', false);
-bindTypeahead('m_article','sugg_articles','cds-articles', true);
-bindTypeahead('m_placeComune','sugg_place','municipalities', false);
+// CHIPS per Articoli
+function renderArticleChips(){
+  const wrap = el('m_articles_chips'); wrap.innerHTML='';
+  state.articles.forEach(text=>{
+    const chip = document.createElement('span');
+    chip.className='chip'; chip.textContent=text;
+    const x = document.createElement('button');
+    x.type='button'; x.className='chip-x'; x.textContent='×';
+    x.onclick = ()=>{ state.articles = state.articles.filter(a=>a!==text); renderArticleChips(); };
+    chip.appendChild(x);
+    wrap.appendChild(chip);
+  });
+}
+function addArticle(text){
+  if(!text) return;
+  if(state.articles.includes(text)) return;
+  state.articles.push(text);
+  renderArticleChips();
+}
 
-// submit manuale
+// Autocomplete binding
+bindTypeahead('m_authority','sugg_authority','authorities', (val)=>{ el('m_authority').value = val; });
+bindTypeahead('m_placeComune','sugg_place','municipalities', (val)=>{ el('m_placeComune').value = val; });
+bindTypeahead('m_article_search','sugg_articles','cds-articles', addArticle);
+
 el('submitManual')?.addEventListener('click', submitManual);
 el('openManual')?.addEventListener('click', openManualModal);
 el('closeManual')?.addEventListener('click', closeManualModal);
@@ -178,7 +193,7 @@ async function submitManual(){
   const v={
     number:el('m_number').value||'',
     authority:el('m_authority').value||'',
-    article:el('m_article').value||'',
+    article: state.articles.length ? state.articles.join('; ') : '',
     place:el('m_placeComune').value||'',
     placeSpecific:el('m_placeSpecific').value||'',
     dateInfrazione:el('m_dateInfrazione').value||'',
@@ -447,6 +462,8 @@ Firma: _____________________________
   const sj=await save.json(); state.token=sj.token;
 
   // 5) countdown 30s → pagamento
+  show('step6'); // la sezione pagamento è visibile, ma l'utente paga solo dopo lo 0
+  hide('step6'); // la nascondiamo finché il timer non scade
   const timer=el('previewTimer');
   let left=30; timer.textContent=`Anteprima disponibile: ${left}s`; timer.style.fontWeight='700';
   const int=setInterval(()=>{
