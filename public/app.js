@@ -1,4 +1,4 @@
-// public/app.js — fix timer, numbering (titles only), AI text de-dup & re-try
+// public/app.js — timer fix, numbering-only on body, AI text keep+soft-dedupe, bold titles & para heads
 
 let state = {
   verbale: null,
@@ -31,7 +31,7 @@ function resetAll(){
   if (state.timerId) { clearInterval(state.timerId); state.timerId=null; }
   state = { verbale:null, motivi:null, token:null, scan:{stream:null, images:[]}, articles:[], previewPages:[], previewIndex:0, timerId:null };
 
-  // pulizia UI
+  // pulizia minima UI
   ['summary','previewCanvasWrap','previewTimer','scanThumbs','scanStatus'].forEach(id=>{
     const n=el(id);
     if(id==='previewCanvasWrap') n.innerHTML='';
@@ -163,9 +163,8 @@ function renderArticleChips(){
     wrap.appendChild(chip);
   });
 }
-function addArticle(text){ if(text && !state.articles.includes(text)){ state.articles.push(text); renderArticleChips(); }
+function addArticle(text){ if(text && !state.articles.includes(text)){ state.articles.push(text); renderArticleChips(); } }
 
-}
 bindTypeahead('m_authority','sugg_authority','authorities', (val)=>{ el('m_authority').value = val; });
 bindTypeahead('m_placeComune','sugg_place','municipalities', (val)=>{ el('m_placeComune').value = val; });
 bindTypeahead('m_article_search','sugg_articles','cds-articles', addArticle);
@@ -217,46 +216,32 @@ function isExtractionWeak(data){
   return !(raw.length>=20 || filled.length>=1);
 }
 
-/* Post-processing AI text: segmenta, ripulisce ripetizioni, numerazione TITOLI */
-const TITLE_REGEX = /^(RICORSO AVVERSO VERBALE|OGGETTO|PREMESSE|IN DIRITTO|MOTIVI(?:\s+PRINCIPALI)?|MOTIVI\s+AGGIUNTIVI|ECCEZIONI|RICHIESTA|CONCLUSIONI|ALLEGATI)/i;
-
-function normalizeText(t){
-  let s = String(t||'').replace(/\r\n/g,'\n');
-  s = s.replace(/[ \t]+\n/g,'\n').replace(/\n{3,}/g,'\n\n');
-  return s.trim();
-}
+/* Utilities testo */
+const TITLE_REGEX = /^(PREMESSE|IN DIRITTO|MOTIVI|ECCEZIONI|CONCLUSIONI|ALLEGATI)/i;
+function normalizeText(t){ return String(t||'').replace(/\r\n/g,'\n').replace(/[ \t]+\n/g,'\n').replace(/\n{3,}/g,'\n\n').trim(); }
 function splitParagraphs(text){
   const raw = normalizeText(text);
   let parts = raw.split(/\n{2,}/).map(p=>p.trim()).filter(Boolean);
-
-  // se l’AI ha sputato un “muro” senza doppi ritorni, prova a splittare su titoli noti
   if (parts.length <= 3) {
-    parts = raw.split(/\n(?=(RICORSO AVVERSO VERBALE|OGGETTO|PREMESSE|IN DIRITTO|MOTIVI|ECCEZIONI|CONCLUSIONI|ALLEGATI)\b)/i);
-    parts = parts.map(p=>p.trim()).filter(Boolean);
+    parts = raw.split(/\n(?=(PREMESSE|IN DIRITTO|MOTIVI|ECCEZIONI|CONCLUSIONI|ALLEGATI)\b)/i)
+               .map(p=>p.trim()).filter(Boolean);
   }
   return parts;
 }
-function dedupeParagraphs(pars){
-  const seen = new Map(); // testoNormalizzato -> count
-  const out = [];
-  for (const p of pars){
-    const key = p.replace(/\s+/g,' ').toLowerCase();
-    const c = (seen.get(key) || 0) + 1;
-    seen.set(key, c);
-    if (c <= 1) out.push(p); // consenti al massimo 1 volta
+function softDedupe(pars){
+  const out=[]; const seen=new Map();
+  for(const p of pars){
+    const k=p.replace(/\s+/g,' ').toLowerCase();
+    if (p.length>120){
+      const c=(seen.get(k)||0)+1; seen.set(k,c);
+      if (c<=2) out.push(p); // permetti al massimo 2 ripetizioni lunghe
+    } else out.push(p);
   }
   return out;
 }
-function numberTitlesOnly(pars){
-  let i=1;
-  return pars.map(p=>{
-    const first = p.split('\n')[0] || '';
-    if (TITLE_REGEX.test(first)) {
-      // se già numerato, sostituisci
-      return p.replace(first, `${i++}. ${first}`);
-    }
-    return p;
-  });
+function ensureMinWords(text, min){
+  const wc = text.split(/\s+/).filter(Boolean).length;
+  return wc>=min;
 }
 
 /* afterExtract */
@@ -330,39 +315,51 @@ function buildFrontMatter(v){
   return `${ente}\n\nRICORSO AVVERSO VERBALE N. ${num}\nOGGETTO: Ricorso avverso verbale n. ${num} per presunta violazione di ${art} in ${comune} in data ${dataInf}.\n\n${ric}`;
 }
 
+// wrapper righe: titoli in grassetto; paragrafi numerati: prima riga in grassetto
 function renderMultipagePreview(paragraphs, opts){
   const {
     pageWidth=800, pageHeight=1120, margin=60,
     font='13px system-ui', lineHeight=20,
-    titleFont='bold 16px system-ui', watermark='BOZZA NON UTILIZZABILE',
-    frontExtraTopLines = 5
+    titleFont='bold 16px system-ui', paraHeadFont='bold 13px system-ui',
+    watermark='BOZZA NON UTILIZZABILE', frontExtraTopLines = 5
   } = opts;
 
   state.previewPages = [];
   const meas = document.createElement('canvas').getContext('2d');
   const maxW = pageWidth - margin*2;
 
-  function wrapParagraph(text, isTitle=false){
-    meas.font = isTitle ? titleFont : font;
+  function wrap(text, fontSpec){
+    meas.font = fontSpec;
     const words = text.split(/\s+/);
-    let line = '', lines = [];
+    let line = '', out = [];
     for (let w of words){
       const test = line + w + ' ';
-      if (meas.measureText(test).width > maxW){ lines.push(line.trim()); line = w + ' '; }
+      if (meas.measureText(test).width > maxW){ out.push(line.trim()); line = w + ' '; }
       else line = test;
     }
-    if (line.trim()) lines.push(line.trim());
-    lines.push(''); // spazio tra paragrafi
-    return lines.map(l => ({ text: l, isTitle }));
+    if (line.trim()) out.push(line.trim());
+    return out;
   }
 
-  const TITLE_DET = /^(RICORSO AVVERSO VERBALE|OGGETTO|PREMESSE|IN DIRITTO|MOTIVI|ECCEZIONI|CONCLUSIONI|ALLEGATI)/i;
-  let lines = [];
-  for (let p of paragraphs){
+  // Prepara “righe” con stile
+  const lines = [];
+  const TITLE_DET = /^(PREMESSE|IN DIRITTO|MOTIVI|ECCEZIONI|CONCLUSIONI|ALLEGATI)/i;
+  paragraphs.forEach((p, idx)=>{
     const first = p.split('\n')[0] || '';
     const isTitle = TITLE_DET.test(first);
-    lines.push(...wrapParagraph(p, isTitle));
-  }
+    if (isTitle){
+      wrap(p, titleFont).forEach(t => lines.push({ text:t, font:titleFont }));
+      lines.push({ text:'', font:font }); // spazio
+    } else {
+      // prima riga del paragrafo (rubrica) in grassetto, il resto normale
+      const wrappedHead = wrap(p, paraHeadFont);
+      if (wrappedHead.length){
+        lines.push({ text:wrappedHead[0], font:paraHeadFont });
+        wrappedHead.slice(1).forEach(t => lines.push({ text:t, font:font }));
+      }
+      lines.push({ text:'', font:font });
+    }
+  });
 
   const linesPerPage = Math.floor((pageHeight - margin*2) / lineHeight);
   let cursor = 0, page = 0;
@@ -381,17 +378,18 @@ function renderMultipagePreview(paragraphs, opts){
 
     while (printed < linesPerPage && cursor < lines.length){
       const ln = lines[cursor];
-      ctx.font = ln.isTitle ? titleFont : font;
+      // frontespizio centrato per le prime ~3 righe
+      ctx.font = ln.font || font;
       ctx.fillStyle = '#111827';
       ctx.textAlign = 'left';
 
       if (page === 0 && !frontBlockConsumed){
-        if (printed === 0 || /^RICORSO AVVERSO VERBALE/i.test(ln.text) || /^OGGETTO/i.test(ln.text)){
+        if (printed <= 2){
           ctx.textAlign = 'center';
-          if (ln.text !== '') ctx.fillText(ln.text, pageWidth/2, y);
+          if (ln.text!=='') ctx.fillText(ln.text, pageWidth/2, y);
           ctx.textAlign = 'left';
         } else {
-          if (ln.text !== '') ctx.fillText(ln.text, margin, y);
+          if (ln.text!=='') ctx.fillText(ln.text, margin, y);
         }
         y += lineHeight; printed++; cursor++;
         if (cursor - startCursor >= 3 && !frontBlockConsumed){
@@ -404,7 +402,6 @@ function renderMultipagePreview(paragraphs, opts){
 
       if (ln.text === '') y += Math.floor(lineHeight*0.6);
       else { ctx.fillText(ln.text, margin, y); y += lineHeight; }
-
       printed++; cursor++;
     }
 
@@ -445,15 +442,13 @@ function renderPreviewStage(){
 
 /* ===== GENERA ANTEPRIMA + TIMER ===== */
 async function generatePreview(){
-  // protezioni timer
+  // chiudi eventuale timer precedente
   if (state.timerId) { clearInterval(state.timerId); state.timerId=null; }
-  hide('step6'); // pagamento solo dopo countdown
+  hide('step6');
 
-  // 1) ottieni corpo ricorso dall’AI, con retry se corto
-  let fullText = '';
-  let tries = 0;
-  while (tries < 3){
-    tries++;
+  // 1) ottieni corpo ricorso dall’AI, con estensione se corto
+  let bodyText = '';
+  {
     const fallbackMode=!state.motivi?.centralMotivo;
     const resAI=await fetch('/api/ai/genera-ricorso',{
       method:'POST',
@@ -469,10 +464,30 @@ async function generatePreview(){
         }
       })
     });
-    let ricorsoText = normalizeText(await resAI.text());
+    bodyText = normalizeText(await resAI.text());
+  }
 
-    // chiusura formale
-    const closing = `
+  // se vuoto/corto → chiedi estensione
+  if (!ensureMinWords(bodyText, 1400)){
+    try{
+      const ext=await fetch('/api/ai/genera-ricorso',{
+        method:'POST',
+        headers:{'Content-Type':'application/json'},
+        body:JSON.stringify({
+          verbale:state.verbale,
+          fallbackMode:false,
+          forceExtend:true,
+          qualityHints:{ minWords: 2200, avoidRepetition:true, tone:"formale, tecnico, forense" }
+        })
+      });
+      const extra = normalizeText(await ext.text());
+      bodyText = normalizeText(bodyText + '\n\n' + extra);
+    }catch{}
+  }
+
+  // 2) front + closing
+  const front = buildFrontMatter(state.verbale);
+  const closing = `
 
 Si allega copia del verbale e documento di identità.
 
@@ -482,73 +497,74 @@ Luogo e data: ______________________
 
 Firma: _____________________________
 `;
-    const front = buildFrontMatter(state.verbale);
-    fullText = `${front}\n${ricorsoText}${closing}`;
+  let fullText = `${front}\n${bodyText}${closing}`;
 
-    // - split + dedupe
-    let pars = splitParagraphs(fullText);
-    pars = dedupeParagraphs(pars);
+  // 3) split + dedup SOFT + struttura titoli + numerazione SOLO paragrafi corpo
+  let pars = splitParagraphs(fullText);
+  pars = softDedupe(pars);
 
-    // se non contiene titoli noti, aggiungine uno per blocchi lunghi
-    const hasTitles = pars.some(p => TITLE_REGEX.test(p.split('\n')[0]||''));
-    if (!hasTitles){
-      pars = [
-        'PREMESSE IN FATTO',
-        ...pars.slice(0, Math.ceil(pars.length/3)),
-        'IN DIRITTO — RICHIAMI NORMATIVI',
-        ...pars.slice(Math.ceil(pars.length/3), Math.ceil(2*pars.length/3)),
-        'MOTIVI PRINCIPALI',
-        ...pars.slice(Math.ceil(2*pars.length/3))
-      ];
-    }
-
-    // numerazione SOLO dei titoli
-    pars = numberTitlesOnly(pars);
-
-    // parola-count
-    const wc = pars.join(' ').split(/\s+/).filter(Boolean).length;
-    if (wc >= 1600 || tries === 3){
-      // render e salvataggio
-      show('step5');
-      renderMultipagePreview(pars, {
-        pageWidth: 800,
-        pageHeight: 1120,
-        margin: 60,
-        font: '13px system-ui',
-        lineHeight: 20,
-        titleFont: 'bold 16px system-ui',
-        watermark: 'BOZZA NON UTILIZZABILE',
-        frontExtraTopLines: 5
-      });
-      smoothScrollTo(el('step5'));
-
-      // calcolo prezzo + payload (testo ricostruito)
-      const cleanText = pars.join('\n\n');
-      const priceRes=await fetch('/api/checkout/price',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({amount:state.verbale.amount||0})});
-      const pr=await priceRes.json(); el('price').textContent=pr.priceFormatted;
-
-      const save=await fetch('/api/store/payload',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({verbale:state.verbale,motivi:state.motivi,ricorsoAI:cleanText})});
-      const sj=await save.json(); state.token=sj.token;
-
-      break; // esci dal retry
-    }
+  // Inserisci titoli se mancanti
+  const hasMainTitles = pars.some(p => TITLE_REGEX.test((p.split('\n')[0]||'')));
+  if (!hasMainTitles){
+    const seg1 = Math.ceil(pars.length/3), seg2 = Math.ceil(2*pars.length/3);
+    pars = [
+      'PREMESSE IN FATTO',
+      ...pars.slice(0, seg1),
+      'IN DIRITTO — RICHIAMI NORMATIVI',
+      ...pars.slice(seg1, seg2),
+      'MOTIVI PRINCIPALI',
+      ...pars.slice(seg2),
+      'CONCLUSIONI'
+    ];
   }
 
-  // 2) TIMER 30s — sempre avviato qui
+  // Numerazione SOLO paragrafi di corpo (non “RICORSO…”, non “OGGETTO…”, non i titoli)
+  let inBody = false; let counter = 1;
+  pars = pars.map(p=>{
+    const first = (p.split('\n')[0]||'').toUpperCase();
+    if (TITLE_REGEX.test(first)) { inBody = true; return p; }
+    if (!inBody) return p; // front matter rimane senza numeri
+    // paragrafo di corpo numerato
+    return `${counter++}. ${p}`;
+  });
+
+  // 4) render multipagina con bold su titoli e caporiga paragrafi
+  show('step5');
+  renderMultipagePreview(pars, {
+    pageWidth: 800,
+    pageHeight: 1120,
+    margin: 60,
+    font: '13px system-ui',
+    lineHeight: 20,
+    titleFont: 'bold 16px system-ui',
+    paraHeadFont: 'bold 13px system-ui',
+    watermark: 'BOZZA NON UTILIZZABILE',
+    frontExtraTopLines: 5
+  });
+  smoothScrollTo(el('step5'));
+
+  // 5) prezzo + payload
+  const cleanText = pars.join('\n\n');
+  const priceRes=await fetch('/api/checkout/price',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({amount:state.verbale.amount||0})});
+  const pr=await priceRes.json(); el('price').textContent=pr.priceFormatted;
+
+  const save=await fetch('/api/store/payload',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({verbale:state.verbale,motivi:state.motivi,ricorsoAI:cleanText})});
+  const sj=await save.json(); state.token=sj.token;
+
+  // 6) TIMER 30s robusto (endTime)
   const timer=el('previewTimer');
-  let left=30;
-  timer.textContent=`Anteprima disponibile: ${left}s`;
+  const endTime = Date.now() + 30000; // 30s
   if (state.timerId) { clearInterval(state.timerId); }
   state.timerId = setInterval(()=>{
-    left--;
+    const ms = Math.max(0, endTime - Date.now());
+    const left = Math.ceil(ms/1000);
     timer.textContent = `Anteprima disponibile: ${left}s`;
-    if(left<=0){
+    if (ms <= 0){
       clearInterval(state.timerId); state.timerId=null;
       el('previewCanvasWrap').innerHTML = '<div style="padding:16px;color:#94a3b8">Anteprima scaduta. Procedi al pagamento per scaricare il ricorso in PDF e Word.</div>';
-      show('step6');
-      smoothScrollTo(el('step6'));
+      show('step6'); smoothScrollTo(el('step6'));
     }
-  },1000);
+  }, 250);
 }
 
 /* ===== PAGAMENTO ===== */
