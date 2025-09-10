@@ -132,7 +132,10 @@
           <div><label>Data di nascita</label><input id="u_dob" type="date"/></div>
           <div><label>Indirizzo</label><input id="u_addr" type="text"/></div>
           <div><label>Codice Fiscale</label><input id="u_cf" type="text"/></div>
-          <div class="full"><label>Ulteriori dettagli</label><textarea id="u_extra" rows="3" placeholder="Aggiungi elementi utili (es. segnaletica scarsa, pioggia, cantieri, ecc.)"></textarea></div>
+          <div class="full">
+            <label>Ulteriori dettagli</label>
+            <textarea id="u_extra" rows="3" placeholder="Fornisci ulteriori dettagli che aiuteranno l'intelligenza artificiale di RICOMU a produrre il tuo ricorso in maniera inoppugnabile"></textarea>
+          </div>
         </div>
 
         <div style="margin-top:10px;">
@@ -142,22 +145,33 @@
 
       <!-- STEP 5: Anteprima -->
       <section id="step5" class="subcard hidden">
-        <div id="previewCanvasWrap" style="margin-top:10px;"></div>
-        <p id="previewTimer" class="muted"></p>
+        <div class="preview-topbar">
+          <div id="previewTimer" class="timer-badge">Anteprima disponibile: 30s</div>
+          <div class="preview-nav">
+            <button id="prevPage" class="btn btn-ghost" type="button" title="Pagina precedente">←</button>
+            <span id="pageIndicator" class="muted small">Pagina 1/1</span>
+            <button id="nextPage" class="btn btn-ghost" type="button" title="Pagina successiva">→</button>
+          </div>
+        </div>
+        <div id="previewCanvasWrap" class="preview-stage"></div>
       </section>
 
       <!-- STEP 6: Pagamento -->
       <section id="step6" class="subcard hidden">
         <h2>Pagamento</h2>
         <p id="price" class="muted" style="font-weight:bold;"></p>
+        <p class="muted small">Scaricherai il ricorso in <strong>PDF</strong> e in <strong>Word (.docx)</strong>.</p>
         <div><button class="btn btn-primary" id="btnPay" type="button">Paga con Stripe</button></div>
         <p class="muted small">Carta test: 4242 4242 4242 4242 — qualsiasi CVC, data futura.</p>
       </section>
 
       <!-- STEP 7: Finale -->
       <section id="step7" class="subcard hidden">
-        <h2>Scarica PDF finale</h2>
-        <a class="btn btn-success" id="btnFinal" href="#" download>Scarica il PDF</a>
+        <h2>Scarica il ricorso</h2>
+        <div class="download-grid">
+          <a class="btn btn-success" id="btnFinalPdf" href="#" download>Scarica PDF</a>
+          <a class="btn btn-success" id="btnFinalDocx" href="#" download>Scarica Word (.docx)</a>
+        </div>
       </section>
 
       <!-- STEP 8: Invio -->
@@ -236,7 +250,10 @@
           <div><label>Data di nascita</label><input id="m_dob" type="date"/></div>
           <div><label>Indirizzo</label><input id="m_addr" type="text"/></div>
           <div><label>Codice Fiscale</label><input id="m_cf" type="text"/></div>
-          <div class="full"><label>Ulteriori dettagli</label><textarea id="m_extra" rows="3" placeholder="Aggiungi elementi utili (es. segnaletica scarsa, pioggia, cantieri, ecc.)"></textarea></div>
+          <div class="full">
+            <label>Ulteriori dettagli</label>
+            <textarea id="m_extra" rows="3" placeholder="Fornisci ulteriori dettagli che aiuteranno l'intelligenza artificiale di RICOMU a produrre il tuo ricorso in maniera inoppugnabile"></textarea>
+          </div>
         </div>
       </div>
 
