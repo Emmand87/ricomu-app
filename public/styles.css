@@ -111,3 +111,15 @@ html,body{margin:0;padding:0;background:linear-gradient(160deg,var(--bg),var(--b
   animation: spin 1s linear infinite; margin:0 auto;
 }
 @keyframes spin{ to{ transform: rotate(360deg); } }
+/* Canvas multipagina dell’anteprima */
+.preview-page{
+  display:block;
+  width: min(100%, 800px);
+  height: auto;
+  margin: 10px auto;
+  border: 1px solid var(--border);
+}
+
+/* Timer più visibile */
+#previewTimer{ font-size:16px; font-weight:700; margin-top:8px; }
+
