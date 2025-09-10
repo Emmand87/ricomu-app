@@ -65,9 +65,12 @@ textarea{resize:vertical}
 .footer{border-top:1px solid var(--border);margin-top:24px}
 .footer .container{padding:20px 16px}
 
+/* MODALE */
 .modal{position:fixed;inset:0;background:rgba(0,0,0,.5);display:flex;align-items:flex-start;justify-content:center;padding:24px;z-index:1000}
-.modal-card{width:min(960px,96vw);background:#0f172a;border:1px solid var(--border);border-radius:16px;padding:16px}
-.modal-head{display:flex;align-items:center;justify-content:space-between;margin-bottom:8px}
+.modal-card{width:min(980px,96vw);background:#0f172a;border:1px solid var(--border);border-radius:16px;display:flex;flex-direction:column;max-height:92vh}
+.modal-head{display:flex;align-items:center;justify-content:space-between;padding:12px 16px;border-bottom:1px solid var(--border)}
+.modal-body{padding:16px;overflow:auto} /* <-- SCROLL INTERNO DEL MODULO */
+.modal-actions{padding:12px 16px;border-top:1px solid var(--border);display:flex;justify-content:flex-end;gap:10px}
 
 /* Loader overlay */
 .loader-overlay{position:fixed;inset:0;background:rgba(0,0,0,.55);display:flex;align-items:center;justify-content:center;z-index:999}
@@ -94,6 +97,11 @@ textarea{resize:vertical}
 }
 .suggest-box li{ padding:8px 12px; cursor:pointer; }
 .suggest-box li:hover{ background:#121b2e; }
+
+/* Chips articoli */
+.chips{ display:flex; gap:8px; flex-wrap:wrap; margin-bottom:6px; }
+.chip{ background:#1f2a44; color:#e5e7eb; border-radius:9999px; padding:6px 10px; display:inline-flex; align-items:center; gap:6px; }
+.chip-x{ background:transparent; border:none; color:#e5e7eb; cursor:pointer; font-size:14px; line-height:1; }
 
 /* Timer più visibile */
 #previewTimer{ font-size:16px; font-weight:700; margin-top:8px; }
