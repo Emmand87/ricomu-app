@@ -6,7 +6,7 @@ let state = {
   scan: { stream: null, images: [] }
 };
 
-const el = id => document.getElementById(id);
+const el   = id => document.getElementById(id);
 const show = id => el(id).classList.remove('hidden');
 const hide = id => el(id).classList.add('hidden');
 
@@ -26,13 +26,20 @@ const smoothScrollTo = node => setTimeout(()=>node?.scrollIntoView({behavior:'sm
 function resetAll(){
   try { state.scan.stream?.getTracks().forEach(t=>t.stop()); } catch{}
   state = { verbale:null, motivi:null, token:null, scan:{stream:null, images:[]} };
-  // pulizie
-  ['v_number','v_authority','v_article','v_place','v_dateInfrazione','v_dateNotifica','v_amount','v_targa','u_name','u_comune','u_dob','u_addr','u_cf',
-   'm_number','m_authority','m_article','m_place','m_dateInfrazione','m_dateNotifica','m_amount','m_targa','m_name','m_comune','m_dob','m_addr','m_cf'
+
+  // pulizia campi
+  [
+    'v_number','v_authority','v_article','v_place','v_dateInfrazione','v_dateNotifica','v_amount','v_targa',
+    'u_name','u_comune','u_dob','u_addr','u_cf',
+    'm_number','m_authority','m_article','m_place','m_dateInfrazione','m_dateNotifica','m_amount','m_targa',
+    'm_name','m_comune','m_dob','m_addr','m_cf'
   ].forEach(id=>{ const i=el(id); if(i) i.value=''; });
+
+  // pulizia UI
   el('summary').innerHTML=''; el('previewCanvasWrap').innerHTML=''; el('previewTimer').textContent='';
   el('scanThumbs').innerHTML=''; el('scanStatus').textContent='';
   const hf=el('heroFile'); if(hf) hf.value='';
+
   // sezioni
   hide('workspace'); hide('cameraBlock'); hide('fallback');
   ['step2','step3','step5','step6','step7','step8','step9'].forEach(hide);
@@ -155,14 +162,13 @@ async function computeMotiviAI(){
   }catch{ state.motivi={centralMotivo:null, mainMotivi:[], extraMotivi:[]}; }
 }
 
-/* Heuristica “scansione adeguata” più permissiva */
+/* Heuristica “scansione adeguata” (più permissiva) */
 function isExtractionWeak(data){
   const raw=(data?.extracted || data?.verbale?.rawText || '').trim();
   const v=data?.verbale || {};
   const fields=['number','authority','article','dateInfrazione','place','dateNotifica','amount','targa'];
   const filled=fields.filter(k=>v[k]);
-  // era: raw<80 && filled<2 → troppo severo
-  // ora: consideriamo adeguata se c'è raw>=20 O almeno 1 campo
+  // adeguata se c'è un minimo di testo O almeno 1 campo
   return !(raw.length>=20 || filled.length>=1);
 }
 
@@ -203,51 +209,262 @@ async function saveCorrections(){
   else { hide('step5'); hide('step6'); hide('step7'); show('centralFallback'); openManualModal(); }
 }
 
-/* Anteprima auto (con scroll e timer ben visibile) */
+/* ========= IMPAGINAZIONE MULTIPAGINA SU CANVAS ========= */
+
+/** Crea il frontespizio (intestazione + oggetto) come primissimi paragrafi */
+function buildFrontMatter(verbale){
+  const ente   = verbale?.authority || 'All’Autorità competente';
+  const num    = verbale?.number   || '________';
+  const luogo  = verbale?.place    || '________';
+  const dataInf= verbale?.dateInfrazione || '____-__-__';
+  const art    = verbale?.article  || 'art. ___ CdS';
+
+  const intestazione = `${ente}\n\n`;
+  const titolo = `RICORSO AVVERSO VERBALE N. ${num}\n`;
+  const oggetto = `OGGETTO: Ricorso avverso verbale n. ${num} per presunta violazione di ${art} in ${luogo} in data ${dataInf}.\n\n`;
+
+  // blocco anagrafico base (se disponibile)
+  const an = verbale?.owner?.name ? `Ricorrente: ${verbale.owner.name}\n` : '';
+  return `${intestazione}${titolo}${oggetto}${an}\n`;
+}
+
+/** Scomponi testo in paragrafi (rispetta doppi a capo) */
+function splitParagraphs(text){
+  const raw = String(text||'').replace(/\r\n/g,'\n');
+  return raw.split(/\n{2,}/).map(p=>p.trim()).filter(Boolean);
+}
+
+/** Impagina un array di paragrafi in più canvas */
+function renderMultipagePreview(paragraphs, opts){
+  const {
+    container,           // element che conterrà i canvas
+    pageWidth = 800,
+    pageHeight = 1120,
+    margin = 60,
+    font = '16px system-ui',
+    lineHeight = 24,
+    titleFont = 'bold 18px system-ui',
+    watermark = 'BOZZA NON UTILIZZABILE'
+  } = opts;
+
+  container.innerHTML = '';
+
+  // calcolo righe dal contenuto
+  const maxW = pageWidth - margin*2;
+
+  // funzione di misurazione con canvas “fantasma”
+  const measCanvas = document.createElement('canvas');
+  const mctx = measCanvas.getContext('2d');
+  mctx.font = font;
+
+  // helper: wrap di un paragrafo in righe
+  function wrapParagraph(text){
+    const words = text.split(/\s+/);
+    let line = '', lines = [];
+    for (let i=0;i<words.length;i++){
+      const test = line + words[i] + ' ';
+      if (mctx.measureText(test).width > maxW) {
+        lines.push(line.trim());
+        line = words[i] + ' ';
+      } else {
+        line = test;
+      }
+    }
+    if (line.trim()) lines.push(line.trim());
+    return lines;
+  }
+
+  // costruisci array totale di righe con spazio tra paragrafi
+  let allLines = [];
+  paragraphs.forEach((p,idx)=>{
+    // titoli del frontespizio (prime 3 righe “speciali” se marcate con \n)
+    if (idx===0 && p.startsWith('RICORSO AVVERSO VERBALE')) {
+      // frontespizio già incluso nel primo paragrafo? lo trattiamo come normale
+    }
+    const wrapped = wrapParagraph(p);
+    allLines.push(...wrapped);
+    allLines.push(''); // riga vuota tra paragrafi
+  });
+
+  // Paginazione
+  const linesPerPage = Math.floor((pageHeight - margin*2) / lineHeight);
+  let pageCount = Math.ceil(allLines.length / linesPerPage);
+  if (pageCount < 1) pageCount = 1;
+
+  // disegniamo pagina per pagina
+  let cursor = 0;
+  const canvases = [];
+
+  for (let pg = 0; pg < pageCount; pg++){
+    const canvas = document.createElement('canvas');
+    canvas.width = pageWidth; canvas.height = pageHeight;
+    canvas.style.userSelect='none'; canvas.style.pointerEvents='none';
+    canvas.className = 'preview-page';
+    const ctx = canvas.getContext('2d');
+
+    // sfondo bianco
+    ctx.fillStyle = '#fff'; ctx.fillRect(0,0,pageWidth,pageHeight);
+
+    // header (solo pagina 1: intestazione + titolo + oggetto)
+    ctx.fillStyle = '#111827';
+    ctx.font = font;
+    let y = margin;
+
+    if (pg === 0) {
+      // intestazione/oggetto sono nelle prime righe del testo (front matter è già nel testo)
+      // Per rendere più "ufficiale", centriamo SOLO il titolo se presente.
+      const firstLine = allLines[0] || '';
+      const isRicorso = firstLine.toUpperCase().startsWith('RICORSO AVVERSO VERBALE');
+      if (isRicorso) {
+        // stampa prime 2-3 righe in grassetto/centro
+        ctx.font = titleFont;
+        ctx.textAlign = 'center';
+        ctx.fillText(firstLine, pageWidth/2, y);
+        y += lineHeight * 1.3;
+
+        // oggetto (la seconda riga inizia con "OGGETTO:")
+        ctx.font = font;
+        const second = allLines[1] || '';
+        if (second.toUpperCase().startsWith('OGGETTO')) {
+          ctx.textAlign = 'center';
+          ctx.fillText(second, pageWidth/2, y);
+          y += lineHeight * 1.2;
+
+          // terza riga (se c'è, es. Ricorrente)
+          const third = allLines[2] || '';
+          if (third.toUpperCase().startsWith('RICORRENTE')) {
+            ctx.textAlign = 'center';
+            ctx.fillText(third, pageWidth/2, y);
+            y += lineHeight * 1.2;
+            // consumiamo queste 3 righe
+            cursor = 3;
+          } else {
+            cursor = 2;
+          }
+          // separatore
+          ctx.textAlign = 'left';
+          y += 6;
+          ctx.fillRect(margin, y, pageWidth - margin*2, 1);
+          y += lineHeight;
+        } else {
+          // nessun "OGGETTO", rimetti font normale
+          ctx.textAlign = 'left';
+          ctx.font = font;
+          // non consumiamo righe se non erano quelle attese
+          y = margin; cursor = 0;
+        }
+      } else {
+        ctx.textAlign = 'left';
+      }
+    } else {
+      ctx.textAlign = 'left';
+    }
+
+    // corpo pagina
+    ctx.font = font;
+    let linesDrawn = 0;
+    while (linesDrawn < linesPerPage && cursor < allLines.length) {
+      const line = allLines[cursor];
+      // paragrafi: riga vuota → spazio extra
+      if (line === '') {
+        y += lineHeight * 0.6;
+      } else {
+        ctx.fillText(line, margin, y);
+        y += lineHeight;
+      }
+      linesDrawn++;
+      cursor++;
+    }
+
+    // watermark
+    ctx.save();
+    ctx.translate(pageWidth/2, pageHeight/2);
+    ctx.rotate(-Math.PI/7);
+    ctx.globalAlpha = 0.12;
+    ctx.fillStyle = '#000';
+    ctx.font = 'bold 48px system-ui';
+    ctx.textAlign = 'center';
+    ctx.fillText('BOZZA NON UTILIZZABILE', 0, 0);
+    ctx.restore();
+
+    // footer pagina
+    ctx.fillStyle = '#6b7280';
+    ctx.font = '12px system-ui';
+    ctx.textAlign = 'right';
+    ctx.fillText(`Pagina ${pg+1}/${pageCount}`, pageWidth - margin, pageHeight - margin/2);
+
+    container.appendChild(canvas);
+    canvases.push(canvas);
+  }
+
+  return canvases.length;
+}
+
+/* ===== Anteprima auto (con impaginazione multi-pagina e timer) ===== */
 async function generatePreview(){
   const fallbackMode=!state.motivi?.centralMotivo;
-  const resAI=await fetch('/api/ai/genera-ricorso',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({verbale:state.verbale, fallbackMode})});
-  const ricorsoText=await resAI.text();
 
-  const wrap=el('previewCanvasWrap'); wrap.innerHTML='';
-  const canvas=document.createElement('canvas'); canvas.width=800; canvas.height=1120;
-  canvas.style.userSelect='none'; canvas.style.pointerEvents='none'; canvas.style.border='1px solid #1f2a44';
-  wrap.appendChild(canvas);
+  // 1) chiedi testo ricorso al backend
+  const resAI=await fetch('/api/ai/genera-ricorso',{
+    method:'POST',
+    headers:{'Content-Type':'application/json'},
+    body:JSON.stringify({verbale:state.verbale, fallbackMode})
+  });
+  let ricorsoText = await resAI.text();
 
-  const ctx=canvas.getContext('2d');
-  ctx.fillStyle='#fff'; ctx.fillRect(0,0,canvas.width,canvas.height);
-  ctx.fillStyle='#111827'; ctx.font='16px system-ui';
+  // 2) frontespizio (intestazione + oggetto + ricorrente)
+  const front = buildFrontMatter(state.verbale);
+  ricorsoText = `${front}\n${ricorsoText}`;
 
-  const words=(ricorsoText||'').split(/\s+/); let x=40,y=60,line=''; const maxW=canvas.width-80;
-  for(let i=0;i<words.length;i++){
-    const test=line+words[i]+' ';
-    if(ctx.measureText(test).width>maxW){ ctx.fillText(line,x,y); line=words[i]+' '; y+=22; if(y>canvas.height-80) break; }
-    else line=test;
-  }
-  if(line) ctx.fillText(line,x,y);
+  // 3) impagina multi-pagina su canvas
+  const wrap = el('previewCanvasWrap');
+  const paragraphs = splitParagraphs(ricorsoText);
+  show('step5'); // mostra il riquadro anteprima
+  const pages = renderMultipagePreview(paragraphs, {
+    container: wrap,
+    pageWidth: 800,
+    pageHeight: 1120,
+    margin: 60,
+    font: '16px system-ui',
+    lineHeight: 24,
+    titleFont: 'bold 18px system-ui',
+    watermark: 'BOZZA NON UTILIZZABILE'
+  });
 
-  // Watermark
-  ctx.save(); ctx.translate(canvas.width/2,canvas.height/2); ctx.rotate(-Math.PI/7); ctx.globalAlpha=0.12; ctx.fillStyle='#000'; ctx.font='bold 48px system-ui'; ctx.textAlign='center'; ctx.fillText('BOZZA NON UTILIZZABILE',0,0); ctx.restore();
+  // scroll verso l’anteprima
+  smoothScrollTo(el('step5'));
 
-  show('step5');
-  smoothScrollTo(el('step5')); // porta l’utente sull’anteprima
-
-  // prezzo & salvataggio payload per pagamento
+  // 4) calcola prezzo e salva payload per pagamento
   const priceRes=await fetch('/api/checkout/price',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({amount:state.verbale.amount||0})});
   const pr=await priceRes.json(); el('price').textContent=pr.priceFormatted;
 
   const save=await fetch('/api/store/payload',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({verbale:state.verbale,motivi:state.motivi,ricorsoAI:ricorsoText})});
   const sj=await save.json(); state.token=sj.token;
 
-  // TIMER 30s ben visibile
+  // 5) TIMER 30s (visibile e in grassetto). Allo 0 → oscura anteprima e mostra pagamento
   const timer=el('previewTimer');
   let left=30; timer.textContent=`Anteprima disponibile: ${left}s`; timer.style.fontWeight='700';
-  const int=setInterval(()=>{ left--; if(left<=0){ clearInterval(int); wrap.innerHTML='<span class="muted">Anteprima scaduta.</span>'; show('step6'); smoothScrollTo(el('step6')); } else { timer.textContent=`Anteprima disponibile: ${left}s`; } },1000);
+  const int=setInterval(()=>{
+    left--;
+    if(left<=0){
+      clearInterval(int);
+      // “oscura” l’anteprima e disattiva l’interazione
+      wrap.innerHTML = '<div style="padding:16px;color:#94a3b8">Anteprima scaduta.</div>';
+      show('step6');
+      smoothScrollTo(el('step6'));
+    } else {
+      timer.textContent = `Anteprima disponibile: ${left}s`;
+    }
+  },1000);
 }
 
 /* Pagamento */
 async function payNow(){
-  const r=await fetch('/api/checkout/create-session',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({amount:state.verbale?.amount||0, token:state.token})});
+  const r=await fetch('/api/checkout/create-session',{
+    method:'POST',
+    headers:{'Content-Type':'application/json'},
+    body:JSON.stringify({amount:state.verbale?.amount||0, token:state.token})
+  });
   const j=await r.json(); if(j.url) window.location.href=j.url; else alert('Errore creazione sessione pagamento');
 }
 
