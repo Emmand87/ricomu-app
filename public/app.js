@@ -4,7 +4,10 @@ let state = {
   motivi: null,
   token: null,
   scan: { stream: null, images: [] },
-  articles: [] // articoli CdS selezionati (chips)
+  articles: [],             // articoli CdS selezionati (chips)
+  previewPages: [],         // canvases
+  previewIndex: 0,          // pagina corrente
+  timerId: null,            // interval del countdown
 };
 
 const el   = id => document.getElementById(id);
@@ -26,7 +29,9 @@ const smoothScrollTo = node => setTimeout(()=>node?.scrollIntoView({behavior:'sm
 /* Reset totale */
 function resetAll(){
   try { state.scan.stream?.getTracks().forEach(t=>t.stop()); } catch{}
-  state = { verbale:null, motivi:null, token:null, scan:{stream:null, images:[]}, articles: [] };
+  if (state.timerId) { clearInterval(state.timerId); state.timerId = null; }
+
+  state = { verbale:null, motivi:null, token:null, scan:{stream:null, images:[]}, articles: [], previewPages: [], previewIndex: 0, timerId: null };
 
   const ids = [
     'v_number','v_authority','v_article','v_place','v_placeSpecific','v_dateInfrazione','v_dateNotifica','v_amount','v_targa',
@@ -148,7 +153,10 @@ function bindTypeahead(inputId, listId, endpoint, onPick){
         li.addEventListener('click', ()=>{
           onPick(li.textContent);
           box.classList.add('hidden'); box.innerHTML='';
-          input.value=''; // svuota dopo pick (UX)
+          // non svuotiamo i campi anagrafici: l'onPick agisce solo sui campi search
+          if (inputId !== 'm_authority' && inputId !== 'm_placeComune' && inputId !== 'm_article_search') {
+            input.value='';
+          }
         });
       });
     }catch(e){ console.error('autocomplete error', e); }
@@ -236,13 +244,31 @@ function isExtractionWeak(data){
 async function afterExtract(data){
   if(isExtractionWeak(data)){ showExtractionFallback(); return; }
 
+  // Non tocchiamo i campi anagrafici già digitati dall'utente
+  const oldOwner = state.verbale?.owner || null;
   state.verbale = data.verbale || { amount:0, rawText: data.extracted || '' };
+  if (oldOwner) {
+    // Se l'utente aveva scritto qualcosa, lo preserviamo
+    state.verbale.owner = { ...oldOwner, ...(state.verbale.owner||{}) };
+  }
+
   await computeMotiviAI();
 
   renderSummary();
   ['number','authority','article','place','placeSpecific','dateInfrazione','dateNotifica','amount','targa']
     .forEach(k=>{ const i=el('v_'+k); if(i) i.value=state.verbale[k]||''; });
-  if (el('u_extra')) el('u_extra').value = state.verbale.rawText || '';
+
+  // RIPRISTINA anagrafica nei campi UI se presente
+  if (state.verbale.owner){
+    const o = state.verbale.owner;
+    if (el('u_name') && o.name) el('u_name').value = o.name;
+    if (el('u_comune') && o.comune) el('u_comune').value = o.comune;
+    if (el('u_dob') && o.dataNascita) el('u_dob').value = o.dataNascita;
+    if (el('u_addr') && o.indirizzo) el('u_addr').value = o.indirizzo;
+    if (el('u_cf') && o.cf) el('u_cf').value = o.cf;
+  }
+  if (el('u_extra')) el('u_extra').value = state.verbale.rawText || el('u_extra').value || '';
+
   show('step2'); show('step3');
 
   const score=fieldsScore(state.verbale);
@@ -280,7 +306,7 @@ async function saveCorrections(){
   else { hide('step5'); hide('step6'); hide('step7'); show('centralFallback'); openManualModal(); }
 }
 
-/* ======== IMPAGINAZIONE MULTIPAGINA MIGLIORATA ======== */
+/* ======== IMPAGINAZIONE MULTIPAGINA, PARAGRAFI NUMERATI ======== */
 
 function buildFrontMatter(v){
   const ente   = v?.authority || 'All’Autorità competente';
@@ -301,15 +327,25 @@ function isTitleLine(line){
   return /^(RICORSO AVVERSO VERBALE|OGGETTO|PREMESSE|IN DIRITTO|MOTIVI|RICHIESTA|ECCEZIONI|CONCLUSIONI|ALLEGATI)/i.test(line);
 }
 
+function numberParagraphs(paragraphs){
+  let idx = 1;
+  return paragraphs.map(p=>{
+    const first = p.split('\n')[0] || '';
+    if (isTitleLine(first)) return p; // i titoli restano senza numero
+    return `${idx++}. ${p}`;
+  });
+}
+
+// Rende e salva le pagine in state.previewPages (font 13px, interlinea 20)
 function renderMultipagePreview(paragraphs, opts){
   const {
-    container, pageWidth=800, pageHeight=1120, margin=60,
-    font='14px system-ui', lineHeight=22,
+    pageWidth=800, pageHeight=1120, margin=60,
+    font='13px system-ui', lineHeight=20, // <- ridotti
     titleFont='bold 16px system-ui', watermark='BOZZA NON UTILIZZABILE',
     frontExtraTopLines = 5
   } = opts;
 
-  container.innerHTML = '';
+  state.previewPages = [];
 
   const meas = document.createElement('canvas').getContext('2d');
   const maxW = pageWidth - margin*2;
@@ -325,7 +361,8 @@ function renderMultipagePreview(paragraphs, opts){
       } else line = test;
     }
     if (line.trim()) lines.push(line.trim());
-    lines.push(''); // spazio tra paragrafi
+    // spazio tra paragrafi (leggermente distanziati)
+    lines.push('');
     return lines.map(l => ({ text: l, isTitle }));
   }
 
@@ -343,7 +380,6 @@ function renderMultipagePreview(paragraphs, opts){
   while (cursor < lines.length){
     const canvas = document.createElement('canvas');
     canvas.width = pageWidth; canvas.height = pageHeight;
-    canvas.className = 'preview-page';
     const ctx = canvas.getContext('2d');
 
     // sfondo
@@ -405,16 +441,38 @@ function renderMultipagePreview(paragraphs, opts){
     ctx.textAlign = 'right';
     ctx.fillText(`Pagina ${page+1}`, pageWidth - margin, pageHeight - margin/2);
 
-    container.appendChild(canvas);
+    state.previewPages.push(canvas);
     page++;
   }
+
+  // mostra pagina 1
+  state.previewIndex = 0;
+  renderPreviewStage();
 }
 
-/* ======== GENERA ANTEPRIMA + TIMER ======== */
+function renderPreviewStage(){
+  const wrap = el('previewCanvasWrap');
+  wrap.innerHTML = '';
+  const page = state.previewPages[state.previewIndex];
+  if (page) {
+    page.className = 'preview-page';
+    wrap.appendChild(page);
+  }
+  const indicator = el('pageIndicator');
+  indicator.textContent = `Pagina ${state.previewIndex+1}/${state.previewPages.length}`;
+  // abilita/disabilita frecce
+  el('prevPage').disabled = (state.previewIndex === 0);
+  el('nextPage').disabled = (state.previewIndex >= state.previewPages.length-1);
+}
+
+/* ======== GENERA ANTEPRIMA + TIMER 30s ======== */
 async function generatePreview(){
+  if (state.timerId) { clearInterval(state.timerId); state.timerId = null; }
+  hide('step6'); // nascondi pagamento finché dura il timer
+
   const fallbackMode=!state.motivi?.centralMotivo;
 
-  // 1) testo ricorso
+  // 1) testo ricorso dall'AI
   const resAI=await fetch('/api/ai/genera-ricorso',{
     method:'POST',
     headers:{'Content-Type':'application/json'},
@@ -434,45 +492,49 @@ Luogo e data: ______________________
 Firma: _____________________________
 `;
   const front = buildFrontMatter(state.verbale);
-  ricorsoText = `${front}\n${ricorsoText}${closing}`;
+  let fullText = `${front}\n${ricorsoText}${closing}`;
 
-  // 3) multipagina
-  const paragraphs = splitParagraphs(ricorsoText);
+  // 3) paragrafi → numerati
+  const paragraphs = numberParagraphs(splitParagraphs(fullText));
+
+  // 4) render multipagina in memoria + stage singola pagina
   show('step5');
-  el('previewCanvasWrap').innerHTML='';
   renderMultipagePreview(paragraphs, {
-    container: el('previewCanvasWrap'),
     pageWidth: 800,
     pageHeight: 1120,
     margin: 60,
-    font: '14px system-ui',
-    lineHeight: 22,
+    font: '13px system-ui',   // più piccolo di 1 punto
+    lineHeight: 20,           // interlinea più stretta
     titleFont: 'bold 16px system-ui',
     watermark: 'BOZZA NON UTILIZZABILE',
     frontExtraTopLines: 5
   });
-
   smoothScrollTo(el('step5'));
 
-  // 4) prezzo & payload
+  // 5) calcolo prezzo + salvataggio payload
   const priceRes=await fetch('/api/checkout/price',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({amount:state.verbale.amount||0})});
   const pr=await priceRes.json(); el('price').textContent=pr.priceFormatted;
 
-  const save=await fetch('/api/store/payload',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({verbale:state.verbale,motivi:state.motivi,ricorsoAI:ricorsoText})});
+  const save=await fetch('/api/store/payload',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({verbale:state.verbale,motivi:state.motivi,ricorsoAI:fullText})});
   const sj=await save.json(); state.token=sj.token;
 
-  // 5) countdown 30s → pagamento
-  show('step6'); // la sezione pagamento è visibile, ma l'utente paga solo dopo lo 0
-  hide('step6'); // la nascondiamo finché il timer non scade
+  // 6) timer 30s ben visibile
   const timer=el('previewTimer');
-  let left=30; timer.textContent=`Anteprima disponibile: ${left}s`; timer.style.fontWeight='700';
-  const int=setInterval(()=>{
+  let left=30; timer.textContent=`Anteprima disponibile: ${left}s`;
+  timer.classList.add('pulse'); // eventualmente puoi animarlo con CSS
+
+  state.timerId = setInterval(()=>{
     left--;
     if(left<=0){
-      clearInterval(int);
-      el('previewCanvasWrap').innerHTML = '<div style="padding:16px;color:#94a3b8">Anteprima scaduta.</div>';
-      show('step6'); smoothScrollTo(el('step6'));
-    } else { timer.textContent = `Anteprima disponibile: ${left}s`; }
+      clearInterval(state.timerId);
+      state.timerId = null;
+      // oscura anteprima e apri pagamento
+      el('previewCanvasWrap').innerHTML = '<div style="padding:16px;color:#94a3b8">Anteprima scaduta. Procedi al pagamento per scaricare il ricorso in PDF e Word.</div>';
+      show('step6');
+      smoothScrollTo(el('step6'));
+    } else {
+      timer.textContent = `Anteprima disponibile: ${left}s`;
+    }
   },1000);
 }
 
@@ -502,5 +564,13 @@ el('closeManual')?.addEventListener('click', closeManualModal);
 
 el('btnPay')?.addEventListener('click', payNow);
 el('btnReset')?.addEventListener('click', resetAll);
+
+/* Navigazione pagine anteprima */
+el('prevPage')?.addEventListener('click', ()=>{
+  if (state.previewIndex>0){ state.previewIndex--; renderPreviewStage(); }
+});
+el('nextPage')?.addEventListener('click', ()=>{
+  if (state.previewIndex < state.previewPages.length-1){ state.previewIndex++; renderPreviewStage(); }
+});
 
 window.addEventListener('beforeunload', ()=>stopCamera());
