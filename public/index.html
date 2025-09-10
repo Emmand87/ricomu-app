@@ -150,8 +150,8 @@
       <section id="step6" class="subcard hidden">
         <h2>Pagamento</h2>
         <p id="price" class="muted" style="font-weight:bold;"></p>
-        <div><button class="btn btn-primary" id="btnPay" type="button">Paga con Stripe (test)</button></div>
-        <p class="muted">Carta test: 4242 4242 4242 4242</p>
+        <div><button class="btn btn-primary" id="btnPay" type="button">Paga con Stripe</button></div>
+        <p class="muted small">Carta test: 4242 4242 4242 4242 — qualsiasi CVC, data futura.</p>
       </section>
 
       <!-- STEP 7: Finale -->
@@ -186,7 +186,7 @@
     </div>
   </footer>
 
-  <!-- MODALE: Inserimento manuale con AUTOCOMPLETE -->
+  <!-- MODALE MANUALE con AUTOCOMPLETE + CHIPS -->
   <div id="manualModal" class="modal hidden" aria-hidden="true">
     <div class="modal-card">
       <div class="modal-head">
@@ -194,47 +194,50 @@
         <button id="closeManual" class="btn btn-ghost small" type="button">Chiudi</button>
       </div>
 
-      <div class="grid">
-        <div><label>Numero verbale</label><input id="m_number" type="text"/></div>
+      <!-- Corpo scrollabile -->
+      <div class="modal-body">
+        <div class="grid">
+          <div><label>Numero verbale</label><input id="m_number" type="text"/></div>
 
-        <!-- Autorità: input + popup suggerimenti -->
-        <div class="rel">
-          <label>Autorità (digita per cercare)</label>
-          <input id="m_authority" type="text" autocomplete="off" placeholder="es. Polizia Locale"/>
-          <ul id="sugg_authority" class="suggest-box hidden"></ul>
+          <!-- Autorità: input + popup suggerimenti -->
+          <div class="rel">
+            <label>Autorità (digita per cercare)</label>
+            <input id="m_authority" type="text" autocomplete="off" placeholder="es. Polizia Locale"/>
+            <ul id="sugg_authority" class="suggest-box hidden"></ul>
+          </div>
+
+          <!-- Articoli CdS: input search + chips multi -->
+          <div class="rel full">
+            <label>Articolo/i CdS (multi)</label>
+            <div id="m_articles_chips" class="chips"></div>
+            <input id="m_article_search" type="text" autocomplete="off" placeholder="Digita es. 142, 146, segnaletica…"/>
+            <ul id="sugg_articles" class="suggest-box hidden"></ul>
+          </div>
+
+          <!-- Comune: input + popup suggerimenti -->
+          <div class="rel">
+            <label>Comune (digita per cercare)</label>
+            <input id="m_placeComune" type="text" autocomplete="off" placeholder="es. Roma"/>
+            <ul id="sugg_place" class="suggest-box hidden"></ul>
+          </div>
+
+          <div><label>Luogo specifico</label><input id="m_placeSpecific" type="text" placeholder="es. Corso Umberto, altezza circonvallazione"/></div>
+
+          <div><label>Data infrazione</label><input id="m_dateInfrazione" type="date"/></div>
+          <div><label>Data notifica</label><input id="m_dateNotifica" type="date"/></div>
+          <div><label>Importo (€)</label><input id="m_amount" type="number" min="0"/></div>
+          <div><label>Targa</label><input id="m_targa" type="text"/></div>
         </div>
 
-        <!-- Articoli CdS: input + popup (multi: concatena con virgola) -->
-        <div class="rel full">
-          <label>Articolo/i CdS (multi)</label>
-          <input id="m_article" type="text" autocomplete="off" placeholder="es. Art. 201, Art. 142"/>
-          <ul id="sugg_articles" class="suggest-box hidden"></ul>
-          <small class="muted">Per più articoli separa con virgola. Es: “Art. 201, Art. 142”.</small>
+        <p class="muted">Dati anagrafici</p>
+        <div class="grid">
+          <div><label>Nome Cognome</label><input id="m_name" type="text"/></div>
+          <div><label>Comune</label><input id="m_comune" type="text"/></div>
+          <div><label>Data di nascita</label><input id="m_dob" type="date"/></div>
+          <div><label>Indirizzo</label><input id="m_addr" type="text"/></div>
+          <div><label>Codice Fiscale</label><input id="m_cf" type="text"/></div>
+          <div class="full"><label>Ulteriori dettagli</label><textarea id="m_extra" rows="3" placeholder="Aggiungi elementi utili (es. segnaletica scarsa, pioggia, cantieri, ecc.)"></textarea></div>
         </div>
-
-        <!-- Comune: input + popup suggerimenti -->
-        <div class="rel">
-          <label>Comune (digita per cercare)</label>
-          <input id="m_placeComune" type="text" autocomplete="off" placeholder="es. Roma"/>
-          <ul id="sugg_place" class="suggest-box hidden"></ul>
-        </div>
-
-        <div><label>Luogo specifico</label><input id="m_placeSpecific" type="text" placeholder="es. Corso Umberto, altezza circonvallazione"/></div>
-
-        <div><label>Data infrazione</label><input id="m_dateInfrazione" type="date"/></div>
-        <div><label>Data notifica</label><input id="m_dateNotifica" type="date"/></div>
-        <div><label>Importo (€)</label><input id="m_amount" type="number" min="0"/></div>
-        <div><label>Targa</label><input id="m_targa" type="text"/></div>
-      </div>
-
-      <p class="muted">Dati anagrafici</p>
-      <div class="grid">
-        <div><label>Nome Cognome</label><input id="m_name" type="text"/></div>
-        <div><label>Comune</label><input id="m_comune" type="text"/></div>
-        <div><label>Data di nascita</label><input id="m_dob" type="date"/></div>
-        <div><label>Indirizzo</label><input id="m_addr" type="text"/></div>
-        <div><label>Codice Fiscale</label><input id="m_cf" type="text"/></div>
-        <div class="full"><label>Ulteriori dettagli</label><textarea id="m_extra" rows="3" placeholder="Aggiungi elementi utili (es. segnaletica scarsa, pioggia, cantieri, ecc.)"></textarea></div>
       </div>
 
       <div class="modal-actions">
