@@ -3,8 +3,7 @@ let state = {
   verbale: null,
   motivi: null,
   token: null,
-  scan: { stream: null, images: [] },
-  articlesSelected: [] // per i chip articoli
+  scan: { stream: null, images: [] }
 };
 
 const el   = id => document.getElementById(id);
@@ -26,15 +25,15 @@ const smoothScrollTo = node => setTimeout(()=>node?.scrollIntoView({behavior:'sm
 /* Reset totale */
 function resetAll(){
   try { state.scan.stream?.getTracks().forEach(t=>t.stop()); } catch{}
-  state = { verbale:null, motivi:null, token:null, scan:{stream:null, images:[]}, articlesSelected: [] };
+  state = { verbale:null, motivi:null, token:null, scan:{stream:null, images:[]} };
 
-  [
+  const ids = [
     'v_number','v_authority','v_article','v_place','v_placeSpecific','v_dateInfrazione','v_dateNotifica','v_amount','v_targa',
     'u_name','u_comune','u_dob','u_addr','u_cf','u_extra',
-    'm_number','m_authority','m_article_search','m_place','m_placeSpecific','m_dateInfrazione','m_dateNotifica','m_amount','m_targa',
+    'm_number','m_authority','m_article','m_placeComune','m_placeSpecific','m_dateInfrazione','m_dateNotifica','m_amount','m_targa',
     'm_name','m_comune','m_dob','m_addr','m_cf','m_extra'
-  ].forEach(id=>{ const i=el(id); if(i) i.value=''; });
-  el('m_articles_chips').innerHTML='';
+  ];
+  ids.forEach(id=>{ const i=el(id); if(i) i.value=''; });
 
   el('summary').innerHTML=''; el('previewCanvasWrap').innerHTML=''; el('previewTimer').textContent='';
   el('scanThumbs').innerHTML=''; el('scanStatus').textContent='';
@@ -50,7 +49,7 @@ function resetAll(){
 function showExtractionFallback(){ show('workspace'); hide('cameraBlock'); ['step2','step3','step5','step6','step7','step8','step9'].forEach(hide); show('fallback'); }
 function hideExtractionFallback(){ hide('fallback'); }
 
-/* Campi chiave */
+/* Campi chiave minimi */
 function fieldsScore(v={}){ let s=0; if(v.number) s++; if(v.authority) s++; if(v.article) s++; if(v.dateInfrazione) s++; return s; }
 function showFieldsWarning(score){ if(score===3) show('fieldsWarn'); else hide('fieldsWarn'); }
 
@@ -75,7 +74,7 @@ function renderSummary(){
   if(!c) show('centralFallback'); else hide('centralFallback');
 }
 
-/* CAMERA (uguale a prima, accorciato per brevità) */
+/* ======== CAMERA ======== */
 async function startCamera(){
   try{
     show('workspace'); show('cameraBlock'); hideExtractionFallback();
@@ -84,7 +83,7 @@ async function startCamera(){
     state.scan.images=[]; el('scanThumbs').innerHTML=''; el('scanStatus').textContent='Inquadra e premi “Scatta”.';
     ['btnRetake','btnAddPage','btnFinishScan'].forEach(hide);
     smoothScrollTo(el('cameraBlock'));
-  }catch(e){ alert('Fotocamera non disponibile.'); hide('cameraBlock'); }
+  }catch(e){ alert('Fotocamera non disponibile. Usa “Carica PDF/Foto” o “Inserisci a mano”.'); hide('cameraBlock'); }
 }
 function stopCamera(){ state.scan.stream?.getTracks().forEach(t=>t.stop()); state.scan.stream=null; }
 function drawCurrentFrame(){ const v=el('camVideo'), c=el('camCanvas'); const w=v.videoWidth,h=v.videoHeight; if(!w||!h) return null; c.width=w;c.height=h;const ctx=c.getContext('2d');ctx.drawImage(v,0,0,w,h);const img=ctx.getImageData(0,0,w,h),d=img.data;for(let i=0;i<d.length;i+=4){const gray=d[i]*.299+d[i+1]*.587+d[i+2]*.114;let g=(gray-128)*1.2+128;g=Math.max(0,Math.min(255,g));d[i]=d[i+1]=d[i+2]=g;}ctx.putImageData(img,0,0);return c.toDataURL('image/jpeg',0.92);}
@@ -98,13 +97,17 @@ async function onFinishScan(){
   el('scanStatus').textContent='Invio scansioni…';
   const blob=b64toBlob(state.scan.images[0]); const fd=new FormData(); fd.append('file', new File([blob],'scan.jpg',{type:'image/jpeg'}));
   showLoader();
-  try{ const res=await fetch('/api/upload',{method:'POST',body:fd}); const data=await res.json(); await afterExtract(data); el('scanStatus').textContent='Scansione inviata.'; }
-  catch(e){ alert('Errore di elaborazione.'); }
+  try{
+    const res=await fetch('/api/upload',{method:'POST',body:fd});
+    const data=await res.json();
+    await afterExtract(data);
+    el('scanStatus').textContent='Scansione inviata.';
+  }catch(e){ alert('Errore di elaborazione.'); }
   finally{ hideLoader(); stopCamera(); }
 }
 function closeCamera(){ stopCamera(); hide('cameraBlock'); }
 
-/* Upload da HERO */
+/* ======== UPLOAD FILE ======== */
 el('heroUpload')?.addEventListener('click', ()=>el('heroFile').click());
 el('heroFile')?.addEventListener('change', onHeroFileChange);
 async function onHeroFileChange(){
@@ -112,89 +115,90 @@ async function onHeroFileChange(){
   show('workspace'); hideExtractionFallback(); el('heroStatus').textContent='Elaboro…';
   const fd=new FormData(); fd.append('file', f);
   showLoader();
-  try{ const r=await fetch('/api/upload',{method:'POST',body:fd}); const data=await res.json(); await afterExtract(data); el('heroStatus').textContent='File elaborato.'; }
-  catch(e){ el('heroStatus').textContent='Errore.'; alert('Errore di elaborazione.'); }
+  try{
+    const r=await fetch('/api/upload',{method:'POST',body:fd});
+    const data=await r.json();
+    await afterExtract(data);
+    el('heroStatus').textContent='File elaborato.';
+  }catch(e){ el('heroStatus').textContent='Errore.'; alert('Errore di elaborazione.'); }
   finally{ hideLoader(); el('heroFile').value=''; }
 }
 
-/* Inserimento manuale */
+/* ======== MODALE MANUALE + AUTOCOMPLETE ======== */
 function openManualModal(){ el('manualModal').classList.remove('hidden'); }
 function closeManualModal(){ el('manualModal').classList.add('hidden'); }
 
-/* === TYPEAHEAD helpers === */
-async function fetchSugg(endpoint, q){ const r=await fetch(`/api/meta/${endpoint}?q=${encodeURIComponent(q||'')}`); return r.json(); }
-function bindSimpleTypeahead(inputId, listId, endpoint){
-  const input = el(inputId), ul = el(listId);
+function bindTypeahead(inputId, listId, endpoint, allowMulti=false){
+  const input = el(inputId);
+  const box = el(listId);
+
   input.addEventListener('input', async ()=>{
-    const q = input.value.trim(); const items = await fetchSugg(endpoint, q);
-    ul.innerHTML = items.map(v=>`<li data-v="${v.replace(/"/g,'&quot;')}">${v}</li>`).join('');
-    if(items.length){ ul.classList.remove('hidden'); } else { ul.classList.add('hidden'); }
+    const q = input.value.trim();
+    if (!q){ box.classList.add('hidden'); box.innerHTML=''; return; }
+    try{
+      const res = await fetch(`/api/meta/${endpoint}?q=${encodeURIComponent(q)}`);
+      const items = await res.json();
+      if(!Array.isArray(items) || !items.length){ box.classList.add('hidden'); return; }
+      // costruisci lista
+      box.innerHTML = items.map(v=>`<li>${v}</li>`).join('');
+      box.classList.remove('hidden');
+      // click su voce
+      box.querySelectorAll('li').forEach(li=>{
+        li.addEventListener('click', ()=>{
+          if (allowMulti && input.value.trim()){
+            // multi: concatena con virgola e spazio
+            const base = input.value.replace(/\s*,\s*$/,'').trim();
+            input.value = base ? `${base}, ${li.textContent}` : li.textContent;
+          } else {
+            input.value = li.textContent;
+          }
+          box.classList.add('hidden'); box.innerHTML='';
+        });
+      });
+    }catch(e){ console.error('autocomplete error', e); }
   });
-  ul.addEventListener('click', e=>{
-    const li = e.target.closest('li'); if(!li) return;
-    input.value = li.getAttribute('data-v'); ul.classList.add('hidden');
+
+  // chiudi se clicchi fuori
+  document.addEventListener('click', (e)=>{
+    if(!box.contains(e.target) && e.target!==input){ box.classList.add('hidden'); }
   });
-  document.addEventListener('click', (e)=>{ if(!ul.contains(e.target) && e.target!==input) ul.classList.add('hidden'); });
-}
-function addArticleChip(text){
-  if(!text) return;
-  if(state.articlesSelected.includes(text)) return;
-  state.articlesSelected.push(text);
-  const wrap = el('m_articles_chips');
-  const chip = document.createElement('span');
-  chip.className = 'chip';
-  chip.textContent = text;
-  const x = document.createElement('button');
-  x.type='button'; x.className='chip-x'; x.textContent='×';
-  x.onclick = ()=>{
-    state.articlesSelected = state.articlesSelected.filter(a=>a!==text);
-    chip.remove();
-  };
-  chip.appendChild(x);
-  wrap.appendChild(chip);
-}
-function bindArticlesTypeahead(){
-  const input = el('m_article_search'), ul = el('sugg_articles');
-  input.addEventListener('input', async ()=>{
-    const items = await fetchSugg('cds-articles', input.value.trim());
-    ul.innerHTML = items.map(v=>`<li data-v="${v.replace(/"/g,'&quot;')}">${v}</li>`).join('');
-    if(items.length){ ul.classList.remove('hidden'); } else { ul.classList.add('hidden'); }
-  });
-  ul.addEventListener('click', e=>{
-    const li = e.target.closest('li'); if(!li) return;
-    addArticleChip(li.getAttribute('data-v'));
-    ul.classList.add('hidden');
-    input.value='';
-  });
-  document.addEventListener('click', (e)=>{ if(!ul.contains(e.target) && e.target!==input) ul.classList.add('hidden'); });
 }
 
-bindSimpleTypeahead('m_authority','sugg_authority','authorities');
-bindSimpleTypeahead('m_place','sugg_place','municipalities');
-bindArticlesTypeahead();
+// attiva i 3 autocompletes (popup piccolo, max ~40 risultati lato server)
+bindTypeahead('m_authority','sugg_authority','authorities', false);
+bindTypeahead('m_article','sugg_articles','cds-articles', true);
+bindTypeahead('m_placeComune','sugg_place','municipalities', false);
 
-/* Submit manuale */
+// submit manuale
 el('submitManual')?.addEventListener('click', submitManual);
+el('openManual')?.addEventListener('click', openManualModal);
+el('closeManual')?.addEventListener('click', closeManualModal);
+
 async function submitManual(){
-  const articleStr = state.articlesSelected.length ? state.articlesSelected.join('; ') : (el('m_article_search').value || '');
   const v={
     number:el('m_number').value||'',
     authority:el('m_authority').value||'',
-    article:articleStr,
-    place:el('m_place').value||'',
+    article:el('m_article').value||'',
+    place:el('m_placeComune').value||'',
     placeSpecific:el('m_placeSpecific').value||'',
     dateInfrazione:el('m_dateInfrazione').value||'',
     dateNotifica:el('m_dateNotifica').value||'',
     amount:parseFloat(el('m_amount').value||'0'),
     targa:el('m_targa').value||'',
-    owner:{name:el('m_name').value||'Nome Cognome', comune:el('m_comune').value||'', dataNascita:el('m_dob').value||'', indirizzo:el('m_addr').value||'', cf:el('m_cf').value||''},
+    owner:{
+      name:el('m_name').value||'Nome Cognome',
+      comune:el('m_comune').value||'',
+      dataNascita:el('m_dob').value||'',
+      indirizzo:el('m_addr').value||'',
+      cf:el('m_cf').value||''
+    },
     rawText: (el('m_extra').value||'')
   };
   closeManualModal(); hideExtractionFallback(); show('workspace');
   await afterExtract({ verbale: v });
 }
 
-/* AI */
+/* ======== AI ======== */
 async function computeMotiviAI(){
   try{
     const r=await fetch('/api/ai/motivi-central',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({verbale:state.verbale})});
@@ -204,7 +208,7 @@ async function computeMotiviAI(){
   }catch{ state.motivi={centralMotivo:null, mainMotivi:[], extraMotivi:[]}; }
 }
 
-/* Heuristica “scansione adeguata” */
+/* Heuristica “scansione adeguata” più permissiva */
 function isExtractionWeak(data){
   const raw=(data?.extracted || data?.verbale?.rawText || '').trim();
   const v=data?.verbale || {};
@@ -213,7 +217,7 @@ function isExtractionWeak(data){
   return !(raw.length>=20 || filled.length>=1);
 }
 
-/* Flusso comune */
+/* Flusso comune dopo OCR/upload/manuale */
 async function afterExtract(data){
   if(isExtractionWeak(data)){ showExtractionFallback(); return; }
 
@@ -221,7 +225,8 @@ async function afterExtract(data){
   await computeMotiviAI();
 
   renderSummary();
-  ['number','authority','article','place','placeSpecific','dateInfrazione','dateNotifica','amount','targa'].forEach(k=>{ const i=el('v_'+k); if(i) i.value=state.verbale[k]||''; });
+  ['number','authority','article','place','placeSpecific','dateInfrazione','dateNotifica','amount','targa']
+    .forEach(k=>{ const i=el('v_'+k); if(i) i.value=state.verbale[k]||''; });
   if (el('u_extra')) el('u_extra').value = state.verbale.rawText || '';
   show('step2'); show('step3');
 
@@ -240,7 +245,13 @@ async function saveCorrections(){
   v.place=el('v_place').value; v.placeSpecific=el('v_placeSpecific').value;
   v.dateInfrazione=el('v_dateInfrazione').value; v.dateNotifica=el('v_dateNotifica').value;
   v.amount=parseFloat(el('v_amount').value||'0'); v.targa=el('v_targa').value;
-  v.owner={ name:el('u_name').value||'Nome Cognome', comune:el('u_comune').value||v.authority||'Comune', dataNascita:el('u_dob').value||'YYYY-MM-DD', indirizzo:el('u_addr').value||'Indirizzo', cf:el('u_cf').value||'CODICEFISCALE' };
+  v.owner={
+    name:el('u_name').value||'Nome Cognome',
+    comune:el('u_comune').value||v.authority||'Comune',
+    dataNascita:el('u_dob').value||'YYYY-MM-DD',
+    indirizzo:el('u_addr').value||'Indirizzo',
+    cf:el('u_cf').value||'CODICEFISCALE'
+  };
   v.rawText = el('u_extra').value || v.rawText;
   state.verbale=v;
 
@@ -254,25 +265,23 @@ async function saveCorrections(){
   else { hide('step5'); hide('step6'); hide('step7'); show('centralFallback'); openManualModal(); }
 }
 
-/* ======== RENDER MULTIPAGINA MIGLIORATO ======== */
+/* ======== IMPAGINAZIONE MULTIPAGINA MIGLIORATA ======== */
 
 function buildFrontMatter(v){
   const ente   = v?.authority || 'All’Autorità competente';
   const num    = v?.number   || '________';
-  const luogo  = v?.place    || '________';
+  const comune = v?.place    || '________';
   const dataInf= v?.dateInfrazione || '____-__-__';
   const art    = v?.article  || 'art. ___ CdS';
   const ric    = v?.owner?.name ? `Ricorrente: ${v.owner.name}\n` : '';
-  return `${ente}\n\nRICORSO AVVERSO VERBALE N. ${num}\nOGGETTO: Ricorso avverso verbale n. ${num} per presunta violazione di ${art} in ${luogo} in data ${dataInf}.\n\n${ric}`;
+  return `${ente}\n\nRICORSO AVVERSO VERBALE N. ${num}\nOGGETTO: Ricorso avverso verbale n. ${num} per presunta violazione di ${art} in ${comune} in data ${dataInf}.\n\n${ric}`;
 }
 
 function splitParagraphs(text){
   const raw = String(text||'').replace(/\r\n/g,'\n');
-  // preserva doppi a capo
   return raw.split(/\n{2,}/).map(p=>p.trim()).filter(Boolean);
 }
 
-// Linea “titolo”? (render in grassetto)
 function isTitleLine(line){
   return /^(RICORSO AVVERSO VERBALE|OGGETTO|PREMESSE|IN DIRITTO|MOTIVI|RICHIESTA|ECCEZIONI|CONCLUSIONI|ALLEGATI)/i.test(line);
 }
@@ -282,33 +291,30 @@ function renderMultipagePreview(paragraphs, opts){
     container, pageWidth=800, pageHeight=1120, margin=60,
     font='14px system-ui', lineHeight=22,
     titleFont='bold 16px system-ui', watermark='BOZZA NON UTILIZZABILE',
-    frontExtraTopLines = 5 // spazio (5 righe) prima del corpo
+    frontExtraTopLines = 5
   } = opts;
 
   container.innerHTML = '';
 
   const meas = document.createElement('canvas').getContext('2d');
-  meas.font = font;
   const maxW = pageWidth - margin*2;
 
   function wrapParagraph(text, isTitle=false){
-    const ctx = meas;
-    ctx.font = isTitle ? titleFont : font;
+    meas.font = isTitle ? titleFont : font;
     const words = text.split(/\s+/);
     let line = '', lines = [];
     for (let w of words){
       const test = line + w + ' ';
-      if (ctx.measureText(test).width > maxW){
+      if (meas.measureText(test).width > maxW){
         lines.push(line.trim()); line = w + ' ';
       } else line = test;
     }
     if (line.trim()) lines.push(line.trim());
-    // aggiungi una riga vuota tra paragrafi
-    lines.push('');
+    lines.push(''); // spazio tra paragrafi
     return lines.map(l => ({ text: l, isTitle }));
   }
 
-  // crea array di righe con flag title
+  // costruisci righe
   let lines = [];
   for (let p of paragraphs){
     const firstLine = p.split('\n')[0] || '';
@@ -329,71 +335,42 @@ function renderMultipagePreview(paragraphs, opts){
     ctx.fillStyle='#fff'; ctx.fillRect(0,0,pageWidth,pageHeight);
 
     let y = margin;
-
-    // Header/frontespizio (prima pagina): è già nel testo ma vogliamo “alto pagina”
-    if (page === 0){
-      // niente offset speciale qui, il frontespizio sta nelle prime righe
-    }
-
-    // Se prima pagina: dopo il frontespizio lascia 5 righe extra
-    let used = 0;
-    const startCursor = cursor;
-
-    // calcolo quante righe entrano
-    while (used < linesPerPage && cursor < lines.length){
-      const ln = lines[cursor];
-      let isBlank = ln.text === '';
-      // posizione: se siamo nella prima pagina e stiamo ancora dentro il frontespizio (prime 3 righe),
-      // lo stampiamo comunque; poi aggiungiamo frontExtraTopLines di spazio prima del resto.
-      cursor++; used++;
-    }
-
-    // reset puntatore per disegno reale
-    cursor = startCursor;
-    used = 0; y = margin;
-
+    let startCursor = cursor;
+    let printed = 0;
     let frontBlockConsumed = false;
-    let printedLines = 0;
 
-    while (printedLines < linesPerPage && cursor < lines.length){
+    // stampa righe che stanno nella pagina
+    while (printed < linesPerPage && cursor < lines.length){
       const ln = lines[cursor];
-      let text = ln.text;
-
-      // Applica font per titoli
       ctx.font = ln.isTitle ? titleFont : font;
       ctx.fillStyle = '#111827';
       ctx.textAlign = 'left';
 
       if (page === 0 && !frontBlockConsumed){
-        // Le prime 3 righe costituiranno tipicamente: "Ente", "RICORSO...", "OGGETTO..."
-        // Le disegniamo in centro per renderle più formali:
-        if (printedLines === 0 || /^RICORSO AVVERSO VERBALE/i.test(text) || /^OGGETTO/i.test(text)){
+        if (printed === 0 || /^RICORSO AVVERSO VERBALE/i.test(ln.text) || /^OGGETTO/i.test(ln.text)){
           ctx.textAlign = 'center';
-          ctx.fillText(text, pageWidth/2, y);
+          if (ln.text !== '') ctx.fillText(ln.text, pageWidth/2, y);
           ctx.textAlign = 'left';
         } else {
-          ctx.fillText(text, margin, y);
+          if (ln.text !== '') ctx.fillText(ln.text, margin, y);
         }
-        y += lineHeight;
-        printedLines++; cursor++;
-
-        // dopo 3-4 righe, aggiungi 5 righe di spazio (solo una volta)
+        y += lineHeight; printed++; cursor++;
+        // dopo prime ~3 righe di frontespizio → spazio 5 righe
         if (cursor - startCursor >= 3 && !frontBlockConsumed){
           y += lineHeight * frontExtraTopLines;
-          printedLines += frontExtraTopLines;
+          printed += frontExtraTopLines;
           frontBlockConsumed = true;
         }
         continue;
       }
 
-      // riga vuota = spazio
-      if (text === '') {
+      if (ln.text === '') {
         y += Math.floor(lineHeight*0.6);
       } else {
-        ctx.fillText(text, margin, y);
+        ctx.fillText(ln.text, margin, y);
         y += lineHeight;
       }
-      printedLines++; cursor++;
+      printed++; cursor++;
     }
 
     // watermark
@@ -407,21 +384,22 @@ function renderMultipagePreview(paragraphs, opts){
     ctx.fillText(watermark, 0, 0);
     ctx.restore();
 
-    // footer
+    // footer pagina
     ctx.fillStyle = '#6b7280';
     ctx.font = '12px system-ui';
     ctx.textAlign = 'right';
     ctx.fillText(`Pagina ${page+1}`, pageWidth - margin, pageHeight - margin/2);
 
-    el('previewCanvasWrap').appendChild(canvas);
+    container.appendChild(canvas);
     page++;
   }
 }
 
-/* Anteprima (con fine documento formale + timer) */
+/* ======== GENERA ANTEPRIMA + TIMER ======== */
 async function generatePreview(){
   const fallbackMode=!state.motivi?.centralMotivo;
 
+  // 1) testo ricorso
   const resAI=await fetch('/api/ai/genera-ricorso',{
     method:'POST',
     headers:{'Content-Type':'application/json'},
@@ -429,7 +407,7 @@ async function generatePreview(){
   });
   let ricorsoText = await resAI.text();
 
-  // append chiusura formale + spazi
+  // 2) chiusura formale con spazi
   const closing = `
 
 Si allega copia del verbale e documento di identità.
@@ -443,6 +421,7 @@ Firma: _____________________________
   const front = buildFrontMatter(state.verbale);
   ricorsoText = `${front}\n${ricorsoText}${closing}`;
 
+  // 3) multipagina
   const paragraphs = splitParagraphs(ricorsoText);
   show('step5');
   el('previewCanvasWrap').innerHTML='';
@@ -460,14 +439,14 @@ Firma: _____________________________
 
   smoothScrollTo(el('step5'));
 
-  // prezzo & payload
+  // 4) prezzo & payload
   const priceRes=await fetch('/api/checkout/price',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({amount:state.verbale.amount||0})});
   const pr=await priceRes.json(); el('price').textContent=pr.priceFormatted;
 
   const save=await fetch('/api/store/payload',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({verbale:state.verbale,motivi:state.motivi,ricorsoAI:ricorsoText})});
   const sj=await save.json(); state.token=sj.token;
 
-  // COUNTDOWN 30s → poi pagamento
+  // 5) countdown 30s → pagamento
   const timer=el('previewTimer');
   let left=30; timer.textContent=`Anteprima disponibile: ${left}s`; timer.style.fontWeight='700';
   const int=setInterval(()=>{
@@ -480,24 +459,31 @@ Firma: _____________________________
   },1000);
 }
 
-/* Pagamento */
+/* ======== PAGAMENTO ======== */
 async function payNow(){
-  const r=await fetch('/api/checkout/create-session',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({amount:state.verbale?.amount||0, token:state.token})});
+  const r=await fetch('/api/checkout/create-session',{
+    method:'POST',
+    headers:{'Content-Type':'application/json'},
+    body:JSON.stringify({amount:state.verbale?.amount||0, token:state.token})
+  });
   const j=await r.json(); if(j.url) window.location.href=j.url; else alert('Errore creazione sessione pagamento');
 }
 
-/* Bind UI */
+/* ======== BIND UI ======== */
 el('heroStartCam')?.addEventListener('click', startCamera);
-el('openManual')?.addEventListener('click', openManualModal);
 el('btnShot')?.addEventListener('click', onShot);
 el('btnRetake')?.addEventListener('click', onRetake);
 el('btnAddPage')?.addEventListener('click', onAddPage);
 el('btnFinishScan')?.addEventListener('click', onFinishScan);
 el('btnCloseCam')?.addEventListener('click', closeCamera);
+
 el('fbRetryScan')?.addEventListener('click', ()=>{ hideExtractionFallback(); startCamera(); });
 el('fbManual')?.addEventListener('click', openManualModal);
 el('openManualFromCentral')?.addEventListener('click', openManualModal);
+el('openManual')?.addEventListener('click', openManualModal);
 el('closeManual')?.addEventListener('click', closeManualModal);
+
 el('btnPay')?.addEventListener('click', payNow);
 el('btnReset')?.addEventListener('click', resetAll);
+
 window.addEventListener('beforeunload', ()=>stopCamera());
