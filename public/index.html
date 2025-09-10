@@ -3,76 +3,33 @@
 <head>
   <meta charset="utf-8"/>
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover"/>
-  <title>RICOMU • Ricorso Multe Online | Scansione verbale e ricorso automatico</title>
-
-  <meta name="description" content="RICOMU: scansiona o carica il verbale e ottieni un ricorso completo (min. 2000 parole) generato con AI e fonti ufficiali. Paghi solo per il PDF finale.">
-  <meta name="keywords" content="ricorso multe, ricorso verbale, codice della strada, autovelox, notifica tardiva, PEC, Prefetto, Giudice di Pace">
-  <meta property="og:title" content="RICOMU • Ricorso Multe Online">
-  <meta property="og:description" content="Scatta la foto al verbale, noi generiamo il ricorso completo con AI e fonti ufficiali.">
-  <meta property="og:type" content="website">
-  <meta property="og:image" content="/og-cover.png">
-  <meta name="theme-color" content="#111827">
-
-  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <title>RICOMU • Ricorso Multe Online</title>
+  <meta name="description" content="Scansiona o carica il verbale e ottieni un ricorso completo (min. 2000 parole) generato con AI e fonti ufficiali.">
   <link rel="stylesheet" href="/styles.css">
-
-  <!-- Dati strutturati -->
-  <script type="application/ld+json">
-  {
-    "@context":"https://schema.org",
-    "@type":"WebApplication",
-    "name":"RICOMU - Ricorso Multe in Italia",
-    "applicationCategory":"LegalService",
-    "operatingSystem":"Web",
-    "description":"Carica o scatta una foto al verbale e ottieni un ricorso completo e personalizzato con AI.",
-    "url":"https://ricomu-app.onrender.com",
-    "publisher":{"@type":"Organization","name":"RICOMU"}
-  }
-  </script>
 </head>
 <body>
-  <!-- HEADER / HERO -->
   <header class="header">
     <div class="container header-inner">
-      <div class="brand">
-        <div class="logo">R</div>
-        <h1>RICOMU — Ricorso Multe in Italia</h1>
-      </div>
-
+      <div class="brand"><div class="logo">R</div><h1>RICOMU — Ricorso Multe in Italia</h1></div>
       <p class="tagline">
         <strong>Scansiona la multa e fai ricorso in 3 minuti.</strong>
-        <span class="muted">
-          Fonti ufficiali sempre aggiornate tramite AI.
-          <strong>Oltre il 90% di ricorsi vinti!</strong> Prova RICOMU.
-        </span>
+        <span class="muted">Fonti ufficiali sempre aggiornate tramite AI. <strong>Oltre il 90% di ricorsi vinti!</strong> Prova RICOMU.</span>
       </p>
-
-      <!-- Tre box azione nella prima schermata -->
       <div class="hero-grid">
-        <!-- BOX 1: Fotocamera -->
         <div class="hero-card">
           <h3>Scansiona il verbale con la fotocamera</h3>
-          <p class="muted small">Inquadra, scatta, aggiungi più pagine e invia.</p>
+          <p class="muted small">Inquadra, scatta e invia.</p>
           <button id="heroStartCam" class="btn btn-primary hero-full" type="button">Apri fotocamera</button>
         </div>
-
         <div class="hero-sep" aria-hidden="true">oppure</div>
-
-        <!-- BOX 2: Upload file -->
         <div class="hero-card">
           <h3>Carica PDF/Foto del verbale</h3>
-          <p class="muted small">Se hai già il file, caricalo e procedi subito.</p>
-          <div class="upload-inline">
-            <!-- nessun 'capture' per evitare apertura fotocamera su mobile -->
-            <input id="heroFile" type="file" accept="application/pdf,image/jpeg,image/png" class="hidden" />
-            <button id="heroUpload" class="btn btn-primary hero-full" type="button">Scegli file</button>
-          </div>
+          <p class="muted small">Se hai già il file, caricalo.</p>
+          <input id="heroFile" type="file" accept="application/pdf,image/jpeg,image/png" class="hidden" />
+          <button id="heroUpload" class="btn btn-primary hero-full" type="button">Scegli file</button>
           <p id="heroStatus" class="muted small"></p>
         </div>
-
         <div class="hero-sep" aria-hidden="true">oppure</div>
-
-        <!-- BOX 3: Inserimento manuale -->
         <div class="hero-card">
           <h3>Inserisci a mano i dati del verbale</h3>
           <p class="muted small">Per verbali illeggibili o scritti a mano.</p>
@@ -83,20 +40,16 @@
     <div class="hero-wave"></div>
   </header>
 
-  <!-- MAIN -->
   <main class="container">
-    <!-- WORKSPACE principale (compare dopo azione) -->
     <section id="workspace" class="card hidden">
       <div class="workspace-head">
         <button id="btnReset" class="btn btn-danger btn-sm" type="button">Riparti da capo</button>
       </div>
 
-      <!-- BLOCCO FOTOCAMERA -->
       <div id="cameraBlock" class="camera hidden">
         <h2>Scansione con fotocamera</h2>
         <video id="camVideo" playsinline autoplay muted></video>
         <canvas id="camCanvas" class="hidden"></canvas>
-        <div class="cam-overlay"></div>
         <div class="cam-controls">
           <button id="btnShot" class="btn btn-primary" type="button">Scatta</button>
           <button id="btnRetake" class="btn btn-ghost hidden" type="button">Riscatta</button>
@@ -108,7 +61,6 @@
         <p id="scanStatus" class="muted"></p>
       </div>
 
-      <!-- FALLBACK: parsing/estrazione debole -->
       <section id="fallback" class="notice hidden" role="alert">
         <h3>Purtroppo la scansione non è adeguata per rilevare i dati automaticamente.</h3>
         <p class="muted">Procedi a una nuova scansione oppure inserisci i dati a mano.</p>
@@ -118,35 +70,28 @@
         </div>
       </section>
 
-      <!-- STEP 2: Riepilogo & motivi -->
       <section id="step2" class="subcard hidden">
         <h2>Riepilogo e motivi del ricorso</h2>
         <div id="summary"></div>
-
-        <!-- Se l’AI non individua il motivo centrale, apriamo subito il modulo manuale -->
         <div id="centralFallback" class="notice hidden">
           <p><strong>La scansione non ha rilevato i dati necessari al ricorso. Si prega di procedere con inserimento manuale.</strong></p>
-          <div class="notice-actions">
-            <button id="openManualFromCentral" class="btn btn-primary" type="button">Apri modulo</button>
-          </div>
+          <div class="notice-actions"><button id="openManualFromCentral" class="btn btn-primary" type="button">Apri modulo</button></div>
         </div>
       </section>
 
-      <!-- STEP 3: Correzioni + AVVISO qualità -->
       <section id="step3" class="subcard hidden">
         <h2>Correggi eventuali errori</h2>
-
-        <!-- AVVISO NON BLOCCANTE (mostrato se 3/4 campi chiave) -->
         <div id="fieldsWarn" class="notice hidden" role="status">
           <p><strong>I campi non sono stati completati, il ricorso prodotto potrebbe essere meno efficace.</strong></p>
-          <p class="muted">Per una migliore qualità del ricorso consigliamo il completamento di <em>tutti i campi chiave</em> (Numero, Autorità, Articolo, Data infrazione). Puoi comunque proseguire.</p>
+          <p class="muted">Per qualità ottimale completa Numero, Autorità, Articolo, Data infrazione. Puoi comunque proseguire.</p>
         </div>
 
         <div class="grid">
           <div><label>Numero verbale</label><input id="v_number" type="text"/></div>
-          <div><label>Autorità</label><input id="v_authority" type="text"/></div>
-          <div><label>Articolo CdS</label><input id="v_article" type="text"/></div>
-          <div><label>Luogo</label><input id="v_place" type="text"/></div>
+          <div><label>Autorità</label><input id="v_authority" type="text" placeholder="es. Polizia Locale"/></div>
+          <div><label>Articolo CdS</label><input id="v_article" type="text" placeholder="es. Art. 201; Art. 142"/></div>
+          <div><label>Comune</label><input id="v_place" type="text" placeholder="es. Roma"/></div>
+          <div><label>Luogo specifico</label><input id="v_placeSpecific" type="text" placeholder="es. Corso Umberto, altezza circonvallazione est"/></div>
           <div><label>Data infrazione</label><input id="v_dateInfrazione" type="date"/></div>
           <div><label>Data notifica</label><input id="v_dateNotifica" type="date"/></div>
           <div><label>Importo (€)</label><input id="v_amount" type="number"/></div>
@@ -160,6 +105,7 @@
           <div><label>Data di nascita</label><input id="u_dob" type="date"/></div>
           <div><label>Indirizzo</label><input id="u_addr" type="text"/></div>
           <div><label>Codice Fiscale</label><input id="u_cf" type="text"/></div>
+          <div class="full"><label>Ulteriori dettagli</label><textarea id="u_extra" rows="3" placeholder="Aggiungi elementi utili (es. segnaletica scarsa, pioggia, cantieri, ecc.)"></textarea></div>
         </div>
 
         <div style="margin-top:10px;">
@@ -167,13 +113,11 @@
         </div>
       </section>
 
-      <!-- STEP 5: Anteprima (auto, senza bottoni extra) -->
       <section id="step5" class="subcard hidden">
         <div id="previewCanvasWrap" style="margin-top:10px;"></div>
         <p id="previewTimer" class="muted"></p>
       </section>
 
-      <!-- STEP 6: Pagamento -->
       <section id="step6" class="subcard hidden">
         <h2>Pagamento</h2>
         <p id="price" class="muted" style="font-weight:bold;"></p>
@@ -181,20 +125,17 @@
         <p class="muted">Carta test: 4242 4242 4242 4242</p>
       </section>
 
-      <!-- STEP 7: Finale -->
       <section id="step7" class="subcard hidden">
         <h2>Scarica PDF finale</h2>
         <a class="btn btn-success" id="btnFinal" href="#" download>Scarica il PDF</a>
       </section>
 
-      <!-- STEP 8: Invio -->
       <section id="step8" class="subcard hidden">
         <h2>Invio PEC / Raccomandata</h2>
-        <p><strong>PEC:</strong> invia all’indirizzo PEC dell’ente indicato nel verbale. Oggetto: “Ricorso avverso verbale n. [Numero]”.</p>
-        <p><strong>Raccomandata A/R:</strong> stampa PDF, firma, allega documento, busta con dicitura “Ricorso avverso verbale n. [Numero]”.</p>
+        <p><strong>PEC:</strong> invia all’indirizzo PEC dell’ente. Oggetto: “Ricorso avverso verbale n. [Numero]”.</p>
+        <p><strong>Raccomandata A/R:</strong> stampa, firma, allega documento; busta con dicitura “Ricorso avverso verbale n. [Numero]”.</p>
       </section>
 
-      <!-- STEP 9: Vademecum -->
       <section id="step9" class="subcard hidden">
         <h2>Vademecum</h2>
         <p id="vademecum"></p>
@@ -203,17 +144,14 @@
     </section>
   </main>
 
-  <!-- FOOTER -->
   <footer class="footer">
     <div class="container">
       <p>© RICOMU — Ricorso Multe in Italia</p>
-      <p class="muted small" style="margin-top:8px">
-        * Dato indicativo. L’esito dipende dal singolo caso e dall’ente destinatario.
-      </p>
+      <p class="muted small" style="margin-top:8px">* L’esito dipende dal caso concreto e dall’ente destinatario.</p>
     </div>
   </footer>
 
-  <!-- MODALE: Inserimento manuale -->
+  <!-- MODALE MANUALE con TYPEAHEAD -->
   <div id="manualModal" class="modal hidden" aria-hidden="true">
     <div class="modal-card">
       <div class="modal-head">
@@ -223,9 +161,31 @@
 
       <div class="grid">
         <div><label>Numero verbale</label><input id="m_number" type="text"/></div>
-        <div><label>Autorità</label><input id="m_authority" type="text"/></div>
-        <div><label>Articolo CdS</label><input id="m_article" type="text"/></div>
-        <div><label>Luogo</label><input id="m_place" type="text"/></div>
+
+        <!-- Autorità: input + suggerimenti -->
+        <div class="rel">
+          <label>Autorità (digita per cercare)</label>
+          <input id="m_authority" type="text" autocomplete="off" placeholder="es. Polizia Locale"/>
+          <ul id="sugg_authority" class="sugg hidden"></ul>
+        </div>
+
+        <!-- Articoli CdS: typeahead + chips multipli -->
+        <div class="rel full">
+          <label>Articolo/i CdS (multi)</label>
+          <div class="chips" id="m_articles_chips"></div>
+          <input id="m_article_search" type="text" autocomplete="off" placeholder="es. Art. 201, Art. 142"/>
+          <ul id="sugg_articles" class="sugg hidden"></ul>
+        </div>
+
+        <!-- Comune: input + suggerimenti -->
+        <div class="rel">
+          <label>Comune (digita per cercare)</label>
+          <input id="m_place" type="text" autocomplete="off" placeholder="es. Roma"/>
+          <ul id="sugg_place" class="sugg hidden"></ul>
+        </div>
+
+        <div><label>Luogo specifico</label><input id="m_placeSpecific" type="text" placeholder="es. Corso Umberto, altezza circonvallazione"/></div>
+
         <div><label>Data infrazione</label><input id="m_dateInfrazione" type="date"/></div>
         <div><label>Data notifica</label><input id="m_dateNotifica" type="date"/></div>
         <div><label>Importo (€)</label><input id="m_amount" type="number" min="0"/></div>
@@ -239,6 +199,7 @@
         <div><label>Data di nascita</label><input id="m_dob" type="date"/></div>
         <div><label>Indirizzo</label><input id="m_addr" type="text"/></div>
         <div><label>Codice Fiscale</label><input id="m_cf" type="text"/></div>
+        <div class="full"><label>Ulteriori dettagli</label><textarea id="m_extra" rows="3" placeholder="Aggiungi elementi utili (es. segnaletica scarsa, pioggia, cantieri, ecc.)"></textarea></div>
       </div>
 
       <div class="modal-actions">
@@ -247,10 +208,10 @@
     </div>
   </div>
 
-  <!-- Overlay loader -->
+  <!-- Loader -->
   <div id="loaderOverlay" class="loader-overlay hidden" aria-hidden="true">
     <div class="loader-card">
-      <div class="spinner-ring" aria-label="Elaborazione in corso"></div>
+      <div class="spinner-ring"></div>
       <p class="loader-title">Elaborazione in corso…</p>
       <p class="loader-sub">Stiamo analizzando il verbale con AI e OCR.<br/>Attendi ~1 minuto.</p>
     </div>
