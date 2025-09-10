@@ -175,3 +175,7 @@ app.listen(PORT, () => {
   console.log('RICOMU app live on http://localhost:' + PORT);
 });
 
+import metaRouter from './meta_routes.js';     // <-- in alto con gli altri import
+// ...
+app.use('/api/meta', metaRouter);               // <-- dopo app = express() e gli altri app.use(...)
+
