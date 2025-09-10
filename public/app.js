@@ -3,7 +3,8 @@ let state = {
   verbale: null,
   motivi: null,
   token: null,
-  scan: { stream: null, images: [] }
+  scan: { stream: null, images: [] },
+  articlesSelected: [] // per i chip articoli
 };
 
 const el   = id => document.getElementById(id);
@@ -25,22 +26,20 @@ const smoothScrollTo = node => setTimeout(()=>node?.scrollIntoView({behavior:'sm
 /* Reset totale */
 function resetAll(){
   try { state.scan.stream?.getTracks().forEach(t=>t.stop()); } catch{}
-  state = { verbale:null, motivi:null, token:null, scan:{stream:null, images:[]} };
+  state = { verbale:null, motivi:null, token:null, scan:{stream:null, images:[]}, articlesSelected: [] };
 
-  // pulizia campi
   [
-    'v_number','v_authority','v_article','v_place','v_dateInfrazione','v_dateNotifica','v_amount','v_targa',
-    'u_name','u_comune','u_dob','u_addr','u_cf',
-    'm_number','m_authority','m_article','m_place','m_dateInfrazione','m_dateNotifica','m_amount','m_targa',
-    'm_name','m_comune','m_dob','m_addr','m_cf'
+    'v_number','v_authority','v_article','v_place','v_placeSpecific','v_dateInfrazione','v_dateNotifica','v_amount','v_targa',
+    'u_name','u_comune','u_dob','u_addr','u_cf','u_extra',
+    'm_number','m_authority','m_article_search','m_place','m_placeSpecific','m_dateInfrazione','m_dateNotifica','m_amount','m_targa',
+    'm_name','m_comune','m_dob','m_addr','m_cf','m_extra'
   ].forEach(id=>{ const i=el(id); if(i) i.value=''; });
+  el('m_articles_chips').innerHTML='';
 
-  // pulizia UI
   el('summary').innerHTML=''; el('previewCanvasWrap').innerHTML=''; el('previewTimer').textContent='';
   el('scanThumbs').innerHTML=''; el('scanStatus').textContent='';
   const hf=el('heroFile'); if(hf) hf.value='';
 
-  // sezioni
   hide('workspace'); hide('cameraBlock'); hide('fallback');
   ['step2','step3','step5','step6','step7','step8','step9'].forEach(hide);
   el('manualModal').classList.add('hidden');
@@ -51,7 +50,7 @@ function resetAll(){
 function showExtractionFallback(){ show('workspace'); hide('cameraBlock'); ['step2','step3','step5','step6','step7','step8','step9'].forEach(hide); show('fallback'); }
 function hideExtractionFallback(){ hide('fallback'); }
 
-/* Valutazione campi chiave (0..4) */
+/* Campi chiave */
 function fieldsScore(v={}){ let s=0; if(v.number) s++; if(v.authority) s++; if(v.article) s++; if(v.dateInfrazione) s++; return s; }
 function showFieldsWarning(score){ if(score===3) show('fieldsWarn'); else hide('fieldsWarn'); }
 
@@ -68,20 +67,15 @@ function renderSummary(){
       <li><strong>Articolo:</strong> ${state.verbale?.article||'-'}</li>
       <li><strong>Infrazione:</strong> ${state.verbale?.dateInfrazione||'-'}</li>
       <li><strong>Notifica:</strong> ${state.verbale?.dateNotifica||'-'}</li>
-      <li><strong>Luogo:</strong> ${state.verbale?.place||'-'}</li>
+      <li><strong>Comune:</strong> ${state.verbale?.place||'-'}</li>
+      <li><strong>Luogo specifico:</strong> ${state.verbale?.placeSpecific||'-'}</li>
       <li><strong>Importo:</strong> € ${state.verbale?.amount||'-'}</li>
     </ul>
-    ${(state.motivi?.mainMotivi?.length || state.motivi?.extraMotivi?.length)?`
-    <p><strong>Motivi individuati (AI):</strong></p>
-    <ul>
-      ${(state.motivi?.mainMotivi||[]).map(m=>`<li>${m.type} — ${m.detail||''} ${cites(m.citations)}</li>`).join('')}
-      ${(state.motivi?.extraMotivi||[]).map(m=>`<li>Pretestuoso: ${m.type} ${cites(m.citations)}</li>`).join('')}
-    </ul>`:''}
   `;
   if(!c) show('centralFallback'); else hide('centralFallback');
 }
 
-/* CAMERA */
+/* CAMERA (uguale a prima, accorciato per brevità) */
 async function startCamera(){
   try{
     show('workspace'); show('cameraBlock'); hideExtractionFallback();
@@ -90,9 +84,7 @@ async function startCamera(){
     state.scan.images=[]; el('scanThumbs').innerHTML=''; el('scanStatus').textContent='Inquadra e premi “Scatta”.';
     ['btnRetake','btnAddPage','btnFinishScan'].forEach(hide);
     smoothScrollTo(el('cameraBlock'));
-  }catch(e){
-    alert('Fotocamera non disponibile. Usa “Carica PDF/Foto” o “Inserisci a mano”.'); hide('cameraBlock');
-  }
+  }catch(e){ alert('Fotocamera non disponibile.'); hide('cameraBlock'); }
 }
 function stopCamera(){ state.scan.stream?.getTracks().forEach(t=>t.stop()); state.scan.stream=null; }
 function drawCurrentFrame(){ const v=el('camVideo'), c=el('camCanvas'); const w=v.videoWidth,h=v.videoHeight; if(!w||!h) return null; c.width=w;c.height=h;const ctx=c.getContext('2d');ctx.drawImage(v,0,0,w,h);const img=ctx.getImageData(0,0,w,h),d=img.data;for(let i=0;i<d.length;i+=4){const gray=d[i]*.299+d[i+1]*.587+d[i+2]*.114;let g=(gray-128)*1.2+128;g=Math.max(0,Math.min(255,g));d[i]=d[i+1]=d[i+2]=g;}ctx.putImageData(img,0,0);return c.toDataURL('image/jpeg',0.92);}
@@ -106,47 +98,97 @@ async function onFinishScan(){
   el('scanStatus').textContent='Invio scansioni…';
   const blob=b64toBlob(state.scan.images[0]); const fd=new FormData(); fd.append('file', new File([blob],'scan.jpg',{type:'image/jpeg'}));
   showLoader();
-  try{
-    const res=await fetch('/api/upload',{method:'POST',body:fd});
-    const data=await res.json();
-    await afterExtract(data);
-    el('scanStatus').textContent='Scansione inviata.';
-  }catch(e){ alert('Errore di elaborazione.'); }
+  try{ const res=await fetch('/api/upload',{method:'POST',body:fd}); const data=await res.json(); await afterExtract(data); el('scanStatus').textContent='Scansione inviata.'; }
+  catch(e){ alert('Errore di elaborazione.'); }
   finally{ hideLoader(); stopCamera(); }
 }
 function closeCamera(){ stopCamera(); hide('cameraBlock'); }
 
 /* Upload da HERO */
-function triggerFileDialog(){ el('heroFile').click(); }
+el('heroUpload')?.addEventListener('click', ()=>el('heroFile').click());
+el('heroFile')?.addEventListener('change', onHeroFileChange);
 async function onHeroFileChange(){
   const f=el('heroFile').files[0]; if(!f) return;
   show('workspace'); hideExtractionFallback(); el('heroStatus').textContent='Elaboro…';
   const fd=new FormData(); fd.append('file', f);
   showLoader();
-  try{
-    const r=await fetch('/api/upload',{method:'POST',body:fd});
-    const data=await r.json();
-    await afterExtract(data);
-    el('heroStatus').textContent='File elaborato.';
-  }catch(e){ el('heroStatus').textContent='Errore.'; alert('Errore di elaborazione.'); }
+  try{ const r=await fetch('/api/upload',{method:'POST',body:fd}); const data=await res.json(); await afterExtract(data); el('heroStatus').textContent='File elaborato.'; }
+  catch(e){ el('heroStatus').textContent='Errore.'; alert('Errore di elaborazione.'); }
   finally{ hideLoader(); el('heroFile').value=''; }
 }
 
 /* Inserimento manuale */
 function openManualModal(){ el('manualModal').classList.remove('hidden'); }
 function closeManualModal(){ el('manualModal').classList.add('hidden'); }
+
+/* === TYPEAHEAD helpers === */
+async function fetchSugg(endpoint, q){ const r=await fetch(`/api/meta/${endpoint}?q=${encodeURIComponent(q||'')}`); return r.json(); }
+function bindSimpleTypeahead(inputId, listId, endpoint){
+  const input = el(inputId), ul = el(listId);
+  input.addEventListener('input', async ()=>{
+    const q = input.value.trim(); const items = await fetchSugg(endpoint, q);
+    ul.innerHTML = items.map(v=>`<li data-v="${v.replace(/"/g,'&quot;')}">${v}</li>`).join('');
+    if(items.length){ ul.classList.remove('hidden'); } else { ul.classList.add('hidden'); }
+  });
+  ul.addEventListener('click', e=>{
+    const li = e.target.closest('li'); if(!li) return;
+    input.value = li.getAttribute('data-v'); ul.classList.add('hidden');
+  });
+  document.addEventListener('click', (e)=>{ if(!ul.contains(e.target) && e.target!==input) ul.classList.add('hidden'); });
+}
+function addArticleChip(text){
+  if(!text) return;
+  if(state.articlesSelected.includes(text)) return;
+  state.articlesSelected.push(text);
+  const wrap = el('m_articles_chips');
+  const chip = document.createElement('span');
+  chip.className = 'chip';
+  chip.textContent = text;
+  const x = document.createElement('button');
+  x.type='button'; x.className='chip-x'; x.textContent='×';
+  x.onclick = ()=>{
+    state.articlesSelected = state.articlesSelected.filter(a=>a!==text);
+    chip.remove();
+  };
+  chip.appendChild(x);
+  wrap.appendChild(chip);
+}
+function bindArticlesTypeahead(){
+  const input = el('m_article_search'), ul = el('sugg_articles');
+  input.addEventListener('input', async ()=>{
+    const items = await fetchSugg('cds-articles', input.value.trim());
+    ul.innerHTML = items.map(v=>`<li data-v="${v.replace(/"/g,'&quot;')}">${v}</li>`).join('');
+    if(items.length){ ul.classList.remove('hidden'); } else { ul.classList.add('hidden'); }
+  });
+  ul.addEventListener('click', e=>{
+    const li = e.target.closest('li'); if(!li) return;
+    addArticleChip(li.getAttribute('data-v'));
+    ul.classList.add('hidden');
+    input.value='';
+  });
+  document.addEventListener('click', (e)=>{ if(!ul.contains(e.target) && e.target!==input) ul.classList.add('hidden'); });
+}
+
+bindSimpleTypeahead('m_authority','sugg_authority','authorities');
+bindSimpleTypeahead('m_place','sugg_place','municipalities');
+bindArticlesTypeahead();
+
+/* Submit manuale */
+el('submitManual')?.addEventListener('click', submitManual);
 async function submitManual(){
+  const articleStr = state.articlesSelected.length ? state.articlesSelected.join('; ') : (el('m_article_search').value || '');
   const v={
     number:el('m_number').value||'',
     authority:el('m_authority').value||'',
-    article:el('m_article').value||'',
+    article:articleStr,
     place:el('m_place').value||'',
+    placeSpecific:el('m_placeSpecific').value||'',
     dateInfrazione:el('m_dateInfrazione').value||'',
     dateNotifica:el('m_dateNotifica').value||'',
     amount:parseFloat(el('m_amount').value||'0'),
     targa:el('m_targa').value||'',
     owner:{name:el('m_name').value||'Nome Cognome', comune:el('m_comune').value||'', dataNascita:el('m_dob').value||'', indirizzo:el('m_addr').value||'', cf:el('m_cf').value||''},
-    rawText:''
+    rawText: (el('m_extra').value||'')
   };
   closeManualModal(); hideExtractionFallback(); show('workspace');
   await afterExtract({ verbale: v });
@@ -162,13 +204,12 @@ async function computeMotiviAI(){
   }catch{ state.motivi={centralMotivo:null, mainMotivi:[], extraMotivi:[]}; }
 }
 
-/* Heuristica “scansione adeguata” (più permissiva) */
+/* Heuristica “scansione adeguata” */
 function isExtractionWeak(data){
   const raw=(data?.extracted || data?.verbale?.rawText || '').trim();
   const v=data?.verbale || {};
   const fields=['number','authority','article','dateInfrazione','place','dateNotifica','amount','targa'];
   const filled=fields.filter(k=>v[k]);
-  // adeguata se c'è un minimo di testo O almeno 1 campo
   return !(raw.length>=20 || filled.length>=1);
 }
 
@@ -180,7 +221,8 @@ async function afterExtract(data){
   await computeMotiviAI();
 
   renderSummary();
-  ['number','authority','article','place','dateInfrazione','dateNotifica','amount','targa'].forEach(k=>{ const i=el('v_'+k); if(i) i.value=state.verbale[k]||''; });
+  ['number','authority','article','place','placeSpecific','dateInfrazione','dateNotifica','amount','targa'].forEach(k=>{ const i=el('v_'+k); if(i) i.value=state.verbale[k]||''; });
+  if (el('u_extra')) el('u_extra').value = state.verbale.rawText || '';
   show('step2'); show('step3');
 
   const score=fieldsScore(state.verbale);
@@ -191,12 +233,15 @@ async function afterExtract(data){
 }
 
 /* Salva correzioni */
+el('btnSaveCorrections')?.addEventListener('click', saveCorrections);
 async function saveCorrections(){
   const v=state.verbale||{};
   v.number=el('v_number').value; v.authority=el('v_authority').value; v.article=el('v_article').value;
-  v.place=el('v_place').value; v.dateInfrazione=el('v_dateInfrazione').value; v.dateNotifica=el('v_dateNotifica').value;
+  v.place=el('v_place').value; v.placeSpecific=el('v_placeSpecific').value;
+  v.dateInfrazione=el('v_dateInfrazione').value; v.dateNotifica=el('v_dateNotifica').value;
   v.amount=parseFloat(el('v_amount').value||'0'); v.targa=el('v_targa').value;
   v.owner={ name:el('u_name').value||'Nome Cognome', comune:el('u_comune').value||v.authority||'Comune', dataNascita:el('u_dob').value||'YYYY-MM-DD', indirizzo:el('u_addr').value||'Indirizzo', cf:el('u_cf').value||'CODICEFISCALE' };
+  v.rawText = el('u_extra').value || v.rawText;
   state.verbale=v;
 
   await computeMotiviAI();
@@ -209,171 +254,146 @@ async function saveCorrections(){
   else { hide('step5'); hide('step6'); hide('step7'); show('centralFallback'); openManualModal(); }
 }
 
-/* ========= IMPAGINAZIONE MULTIPAGINA SU CANVAS ========= */
+/* ======== RENDER MULTIPAGINA MIGLIORATO ======== */
 
-/** Crea il frontespizio (intestazione + oggetto) come primissimi paragrafi */
-function buildFrontMatter(verbale){
-  const ente   = verbale?.authority || 'All’Autorità competente';
-  const num    = verbale?.number   || '________';
-  const luogo  = verbale?.place    || '________';
-  const dataInf= verbale?.dateInfrazione || '____-__-__';
-  const art    = verbale?.article  || 'art. ___ CdS';
-
-  const intestazione = `${ente}\n\n`;
-  const titolo = `RICORSO AVVERSO VERBALE N. ${num}\n`;
-  const oggetto = `OGGETTO: Ricorso avverso verbale n. ${num} per presunta violazione di ${art} in ${luogo} in data ${dataInf}.\n\n`;
-
-  // blocco anagrafico base (se disponibile)
-  const an = verbale?.owner?.name ? `Ricorrente: ${verbale.owner.name}\n` : '';
-  return `${intestazione}${titolo}${oggetto}${an}\n`;
+function buildFrontMatter(v){
+  const ente   = v?.authority || 'All’Autorità competente';
+  const num    = v?.number   || '________';
+  const luogo  = v?.place    || '________';
+  const dataInf= v?.dateInfrazione || '____-__-__';
+  const art    = v?.article  || 'art. ___ CdS';
+  const ric    = v?.owner?.name ? `Ricorrente: ${v.owner.name}\n` : '';
+  return `${ente}\n\nRICORSO AVVERSO VERBALE N. ${num}\nOGGETTO: Ricorso avverso verbale n. ${num} per presunta violazione di ${art} in ${luogo} in data ${dataInf}.\n\n${ric}`;
 }
 
-/** Scomponi testo in paragrafi (rispetta doppi a capo) */
 function splitParagraphs(text){
   const raw = String(text||'').replace(/\r\n/g,'\n');
+  // preserva doppi a capo
   return raw.split(/\n{2,}/).map(p=>p.trim()).filter(Boolean);
 }
 
-/** Impagina un array di paragrafi in più canvas */
+// Linea “titolo”? (render in grassetto)
+function isTitleLine(line){
+  return /^(RICORSO AVVERSO VERBALE|OGGETTO|PREMESSE|IN DIRITTO|MOTIVI|RICHIESTA|ECCEZIONI|CONCLUSIONI|ALLEGATI)/i.test(line);
+}
+
 function renderMultipagePreview(paragraphs, opts){
   const {
-    container,           // element che conterrà i canvas
-    pageWidth = 800,
-    pageHeight = 1120,
-    margin = 60,
-    font = '16px system-ui',
-    lineHeight = 24,
-    titleFont = 'bold 18px system-ui',
-    watermark = 'BOZZA NON UTILIZZABILE'
+    container, pageWidth=800, pageHeight=1120, margin=60,
+    font='14px system-ui', lineHeight=22,
+    titleFont='bold 16px system-ui', watermark='BOZZA NON UTILIZZABILE',
+    frontExtraTopLines = 5 // spazio (5 righe) prima del corpo
   } = opts;
 
   container.innerHTML = '';
 
-  // calcolo righe dal contenuto
+  const meas = document.createElement('canvas').getContext('2d');
+  meas.font = font;
   const maxW = pageWidth - margin*2;
 
-  // funzione di misurazione con canvas “fantasma”
-  const measCanvas = document.createElement('canvas');
-  const mctx = measCanvas.getContext('2d');
-  mctx.font = font;
-
-  // helper: wrap di un paragrafo in righe
-  function wrapParagraph(text){
+  function wrapParagraph(text, isTitle=false){
+    const ctx = meas;
+    ctx.font = isTitle ? titleFont : font;
     const words = text.split(/\s+/);
     let line = '', lines = [];
-    for (let i=0;i<words.length;i++){
-      const test = line + words[i] + ' ';
-      if (mctx.measureText(test).width > maxW) {
-        lines.push(line.trim());
-        line = words[i] + ' ';
-      } else {
-        line = test;
-      }
+    for (let w of words){
+      const test = line + w + ' ';
+      if (ctx.measureText(test).width > maxW){
+        lines.push(line.trim()); line = w + ' ';
+      } else line = test;
     }
     if (line.trim()) lines.push(line.trim());
-    return lines;
+    // aggiungi una riga vuota tra paragrafi
+    lines.push('');
+    return lines.map(l => ({ text: l, isTitle }));
   }
 
-  // costruisci array totale di righe con spazio tra paragrafi
-  let allLines = [];
-  paragraphs.forEach((p,idx)=>{
-    // titoli del frontespizio (prime 3 righe “speciali” se marcate con \n)
-    if (idx===0 && p.startsWith('RICORSO AVVERSO VERBALE')) {
-      // frontespizio già incluso nel primo paragrafo? lo trattiamo come normale
-    }
-    const wrapped = wrapParagraph(p);
-    allLines.push(...wrapped);
-    allLines.push(''); // riga vuota tra paragrafi
-  });
+  // crea array di righe con flag title
+  let lines = [];
+  for (let p of paragraphs){
+    const firstLine = p.split('\n')[0] || '';
+    const titleFlag = isTitleLine(firstLine.toUpperCase());
+    lines.push(...wrapParagraph(p, titleFlag));
+  }
 
-  // Paginazione
   const linesPerPage = Math.floor((pageHeight - margin*2) / lineHeight);
-  let pageCount = Math.ceil(allLines.length / linesPerPage);
-  if (pageCount < 1) pageCount = 1;
+  let cursor = 0, page = 0;
 
-  // disegniamo pagina per pagina
-  let cursor = 0;
-  const canvases = [];
-
-  for (let pg = 0; pg < pageCount; pg++){
+  while (cursor < lines.length){
     const canvas = document.createElement('canvas');
     canvas.width = pageWidth; canvas.height = pageHeight;
-    canvas.style.userSelect='none'; canvas.style.pointerEvents='none';
     canvas.className = 'preview-page';
     const ctx = canvas.getContext('2d');
 
-    // sfondo bianco
-    ctx.fillStyle = '#fff'; ctx.fillRect(0,0,pageWidth,pageHeight);
+    // sfondo
+    ctx.fillStyle='#fff'; ctx.fillRect(0,0,pageWidth,pageHeight);
 
-    // header (solo pagina 1: intestazione + titolo + oggetto)
-    ctx.fillStyle = '#111827';
-    ctx.font = font;
     let y = margin;
 
-    if (pg === 0) {
-      // intestazione/oggetto sono nelle prime righe del testo (front matter è già nel testo)
-      // Per rendere più "ufficiale", centriamo SOLO il titolo se presente.
-      const firstLine = allLines[0] || '';
-      const isRicorso = firstLine.toUpperCase().startsWith('RICORSO AVVERSO VERBALE');
-      if (isRicorso) {
-        // stampa prime 2-3 righe in grassetto/centro
-        ctx.font = titleFont;
-        ctx.textAlign = 'center';
-        ctx.fillText(firstLine, pageWidth/2, y);
-        y += lineHeight * 1.3;
-
-        // oggetto (la seconda riga inizia con "OGGETTO:")
-        ctx.font = font;
-        const second = allLines[1] || '';
-        if (second.toUpperCase().startsWith('OGGETTO')) {
-          ctx.textAlign = 'center';
-          ctx.fillText(second, pageWidth/2, y);
-          y += lineHeight * 1.2;
-
-          // terza riga (se c'è, es. Ricorrente)
-          const third = allLines[2] || '';
-          if (third.toUpperCase().startsWith('RICORRENTE')) {
-            ctx.textAlign = 'center';
-            ctx.fillText(third, pageWidth/2, y);
-            y += lineHeight * 1.2;
-            // consumiamo queste 3 righe
-            cursor = 3;
-          } else {
-            cursor = 2;
-          }
-          // separatore
-          ctx.textAlign = 'left';
-          y += 6;
-          ctx.fillRect(margin, y, pageWidth - margin*2, 1);
-          y += lineHeight;
-        } else {
-          // nessun "OGGETTO", rimetti font normale
-          ctx.textAlign = 'left';
-          ctx.font = font;
-          // non consumiamo righe se non erano quelle attese
-          y = margin; cursor = 0;
-        }
-      } else {
-        ctx.textAlign = 'left';
-      }
-    } else {
-      ctx.textAlign = 'left';
+    // Header/frontespizio (prima pagina): è già nel testo ma vogliamo “alto pagina”
+    if (page === 0){
+      // niente offset speciale qui, il frontespizio sta nelle prime righe
     }
 
-    // corpo pagina
-    ctx.font = font;
-    let linesDrawn = 0;
-    while (linesDrawn < linesPerPage && cursor < allLines.length) {
-      const line = allLines[cursor];
-      // paragrafi: riga vuota → spazio extra
-      if (line === '') {
-        y += lineHeight * 0.6;
+    // Se prima pagina: dopo il frontespizio lascia 5 righe extra
+    let used = 0;
+    const startCursor = cursor;
+
+    // calcolo quante righe entrano
+    while (used < linesPerPage && cursor < lines.length){
+      const ln = lines[cursor];
+      let isBlank = ln.text === '';
+      // posizione: se siamo nella prima pagina e stiamo ancora dentro il frontespizio (prime 3 righe),
+      // lo stampiamo comunque; poi aggiungiamo frontExtraTopLines di spazio prima del resto.
+      cursor++; used++;
+    }
+
+    // reset puntatore per disegno reale
+    cursor = startCursor;
+    used = 0; y = margin;
+
+    let frontBlockConsumed = false;
+    let printedLines = 0;
+
+    while (printedLines < linesPerPage && cursor < lines.length){
+      const ln = lines[cursor];
+      let text = ln.text;
+
+      // Applica font per titoli
+      ctx.font = ln.isTitle ? titleFont : font;
+      ctx.fillStyle = '#111827';
+      ctx.textAlign = 'left';
+
+      if (page === 0 && !frontBlockConsumed){
+        // Le prime 3 righe costituiranno tipicamente: "Ente", "RICORSO...", "OGGETTO..."
+        // Le disegniamo in centro per renderle più formali:
+        if (printedLines === 0 || /^RICORSO AVVERSO VERBALE/i.test(text) || /^OGGETTO/i.test(text)){
+          ctx.textAlign = 'center';
+          ctx.fillText(text, pageWidth/2, y);
+          ctx.textAlign = 'left';
+        } else {
+          ctx.fillText(text, margin, y);
+        }
+        y += lineHeight;
+        printedLines++; cursor++;
+
+        // dopo 3-4 righe, aggiungi 5 righe di spazio (solo una volta)
+        if (cursor - startCursor >= 3 && !frontBlockConsumed){
+          y += lineHeight * frontExtraTopLines;
+          printedLines += frontExtraTopLines;
+          frontBlockConsumed = true;
+        }
+        continue;
+      }
+
+      // riga vuota = spazio
+      if (text === '') {
+        y += Math.floor(lineHeight*0.6);
       } else {
-        ctx.fillText(line, margin, y);
+        ctx.fillText(text, margin, y);
         y += lineHeight;
       }
-      linesDrawn++;
-      cursor++;
+      printedLines++; cursor++;
     }
 
     // watermark
@@ -384,27 +404,24 @@ function renderMultipagePreview(paragraphs, opts){
     ctx.fillStyle = '#000';
     ctx.font = 'bold 48px system-ui';
     ctx.textAlign = 'center';
-    ctx.fillText('BOZZA NON UTILIZZABILE', 0, 0);
+    ctx.fillText(watermark, 0, 0);
     ctx.restore();
 
-    // footer pagina
+    // footer
     ctx.fillStyle = '#6b7280';
     ctx.font = '12px system-ui';
     ctx.textAlign = 'right';
-    ctx.fillText(`Pagina ${pg+1}/${pageCount}`, pageWidth - margin, pageHeight - margin/2);
+    ctx.fillText(`Pagina ${page+1}`, pageWidth - margin, pageHeight - margin/2);
 
-    container.appendChild(canvas);
-    canvases.push(canvas);
+    el('previewCanvasWrap').appendChild(canvas);
+    page++;
   }
-
-  return canvases.length;
 }
 
-/* ===== Anteprima auto (con impaginazione multi-pagina e timer) ===== */
+/* Anteprima (con fine documento formale + timer) */
 async function generatePreview(){
   const fallbackMode=!state.motivi?.centralMotivo;
 
-  // 1) chiedi testo ricorso al backend
   const resAI=await fetch('/api/ai/genera-ricorso',{
     method:'POST',
     headers:{'Content-Type':'application/json'},
@@ -412,83 +429,75 @@ async function generatePreview(){
   });
   let ricorsoText = await resAI.text();
 
-  // 2) frontespizio (intestazione + oggetto + ricorrente)
-  const front = buildFrontMatter(state.verbale);
-  ricorsoText = `${front}\n${ricorsoText}`;
+  // append chiusura formale + spazi
+  const closing = `
 
-  // 3) impagina multi-pagina su canvas
-  const wrap = el('previewCanvasWrap');
+Si allega copia del verbale e documento di identità.
+
+
+
+Luogo e data: ______________________
+
+Firma: _____________________________
+`;
+  const front = buildFrontMatter(state.verbale);
+  ricorsoText = `${front}\n${ricorsoText}${closing}`;
+
   const paragraphs = splitParagraphs(ricorsoText);
-  show('step5'); // mostra il riquadro anteprima
-  const pages = renderMultipagePreview(paragraphs, {
-    container: wrap,
+  show('step5');
+  el('previewCanvasWrap').innerHTML='';
+  renderMultipagePreview(paragraphs, {
+    container: el('previewCanvasWrap'),
     pageWidth: 800,
     pageHeight: 1120,
     margin: 60,
-    font: '16px system-ui',
-    lineHeight: 24,
-    titleFont: 'bold 18px system-ui',
-    watermark: 'BOZZA NON UTILIZZABILE'
+    font: '14px system-ui',
+    lineHeight: 22,
+    titleFont: 'bold 16px system-ui',
+    watermark: 'BOZZA NON UTILIZZABILE',
+    frontExtraTopLines: 5
   });
 
-  // scroll verso l’anteprima
   smoothScrollTo(el('step5'));
 
-  // 4) calcola prezzo e salva payload per pagamento
+  // prezzo & payload
   const priceRes=await fetch('/api/checkout/price',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({amount:state.verbale.amount||0})});
   const pr=await priceRes.json(); el('price').textContent=pr.priceFormatted;
 
   const save=await fetch('/api/store/payload',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({verbale:state.verbale,motivi:state.motivi,ricorsoAI:ricorsoText})});
   const sj=await save.json(); state.token=sj.token;
 
-  // 5) TIMER 30s (visibile e in grassetto). Allo 0 → oscura anteprima e mostra pagamento
+  // COUNTDOWN 30s → poi pagamento
   const timer=el('previewTimer');
   let left=30; timer.textContent=`Anteprima disponibile: ${left}s`; timer.style.fontWeight='700';
   const int=setInterval(()=>{
     left--;
     if(left<=0){
       clearInterval(int);
-      // “oscura” l’anteprima e disattiva l’interazione
-      wrap.innerHTML = '<div style="padding:16px;color:#94a3b8">Anteprima scaduta.</div>';
-      show('step6');
-      smoothScrollTo(el('step6'));
-    } else {
-      timer.textContent = `Anteprima disponibile: ${left}s`;
-    }
+      el('previewCanvasWrap').innerHTML = '<div style="padding:16px;color:#94a3b8">Anteprima scaduta.</div>';
+      show('step6'); smoothScrollTo(el('step6'));
+    } else { timer.textContent = `Anteprima disponibile: ${left}s`; }
   },1000);
 }
 
 /* Pagamento */
 async function payNow(){
-  const r=await fetch('/api/checkout/create-session',{
-    method:'POST',
-    headers:{'Content-Type':'application/json'},
-    body:JSON.stringify({amount:state.verbale?.amount||0, token:state.token})
-  });
+  const r=await fetch('/api/checkout/create-session',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({amount:state.verbale?.amount||0, token:state.token})});
   const j=await r.json(); if(j.url) window.location.href=j.url; else alert('Errore creazione sessione pagamento');
 }
 
 /* Bind UI */
-el('heroStartCam').addEventListener('click', startCamera);
-el('heroUpload').addEventListener('click', ()=>el('heroFile').click());
-el('heroFile').addEventListener('change', onHeroFileChange);
-el('openManual').addEventListener('click', openManualModal);
-
-el('btnShot').addEventListener('click', onShot);
-el('btnRetake').addEventListener('click', onRetake);
-el('btnAddPage').addEventListener('click', onAddPage);
-el('btnFinishScan').addEventListener('click', onFinishScan);
-el('btnCloseCam').addEventListener('click', closeCamera);
-
-el('fbRetryScan').addEventListener('click', ()=>{ hideExtractionFallback(); startCamera(); });
-el('fbManual').addEventListener('click', openManualModal);
-const omc=document.getElementById('openManualFromCentral'); if(omc) omc.addEventListener('click', openManualModal);
-
-el('closeManual').addEventListener('click', closeManualModal);
-el('submitManual').addEventListener('click', submitManual);
-
-el('btnSaveCorrections').addEventListener('click', saveCorrections);
-el('btnPay').addEventListener('click', payNow);
-el('btnReset').addEventListener('click', resetAll);
-
+el('heroStartCam')?.addEventListener('click', startCamera);
+el('openManual')?.addEventListener('click', openManualModal);
+el('btnShot')?.addEventListener('click', onShot);
+el('btnRetake')?.addEventListener('click', onRetake);
+el('btnAddPage')?.addEventListener('click', onAddPage);
+el('btnFinishScan')?.addEventListener('click', onFinishScan);
+el('btnCloseCam')?.addEventListener('click', closeCamera);
+el('fbRetryScan')?.addEventListener('click', ()=>{ hideExtractionFallback(); startCamera(); });
+el('fbManual')?.addEventListener('click', openManualModal);
+el('openManualFromCentral')?.addEventListener('click', openManualModal);
+el('closeManual')?.addEventListener('click', closeManualModal);
+el('btnPay')?.addEventListener('click', payNow);
+el('btnReset')?.addEventListener('click', resetAll);
 window.addEventListener('beforeunload', ()=>stopCamera());
